@@ -2,6 +2,8 @@
 
 #include <QObject>
 
+#include "FileEntry.h"
+
 namespace NDS {
 class NDSFileSystem;
 }
@@ -14,20 +16,22 @@ public:
     explicit Worker(QObject* parent = nullptr);
     ~Worker() override;
 
-    void logCallback(const std::string& str);
-
 public slots:
-    void loadRom(const std::string& romPath);
+    void loadRom(const QString& romPath);
     void printFilesystem();
-    void exportStrings(const std::string& outFolder);
+    void exportStrings(const QString& outFolder, const QStringList& files);
 
 signals:
     void log(const std::string& str);
     void romLoaded(bool success);
+    void filesystemListed(const NdsFileEntryList& entries);
     void taskFinished(bool success);
 
 private:
+    void logCallback(const std::string& str);
+
     void clearRom();
+    NdsFileEntryList buildEntryList() const;
 
     std::unique_ptr<NDS::NDSFileSystem> m_fs;
 

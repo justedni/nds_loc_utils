@@ -33,6 +33,7 @@ class P2Archive
 {
 public:
     P2Archive(const std::string& filePath);
+    P2Archive(const uint8_t* inputPtr, int inputSize);
 
     std::vector<P2SubFile>& getFileTable() { return m_subfiles; }
     void updateEntry(int id, const uint8_t* data, uint32_t dataSize);
@@ -51,8 +52,6 @@ private:
     std::vector<uint8_t> m_inputBuffer;
     const uint8_t* m_inputPtr = nullptr;
     int m_inputSize = 0;
-
-    std::string m_filename;
 
     std::vector<P2SubFile> m_subfiles;
     std::vector<strings::StringList> m_strings;

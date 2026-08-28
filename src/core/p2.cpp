@@ -16,9 +16,14 @@ P2Archive::P2Archive(const std::string& filePath)
     m_inputPtr = m_inputBuffer.data();
     m_inputSize = m_inputBuffer.size();
 
-    auto path = std::filesystem::path(filePath);
-    m_filename = (path.parent_path().stem().string() + std::string("/") + path.stem().string());
+    readFileTable();
+}
 
+
+P2Archive::P2Archive(const uint8_t* inputPtr, int inputSize)
+    : m_inputPtr(inputPtr)
+    , m_inputSize(inputSize)
+{
     readFileTable();
 }
 

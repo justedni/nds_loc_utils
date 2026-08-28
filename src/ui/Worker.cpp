@@ -5,6 +5,11 @@
 #include "core/nds.h"
 #include "core/utils.h"
 
+#include "core/p2.h"
+
+#include <QFileInfo>
+#include <QDir>
+
 Worker::Worker(QObject* parent)
     : QObject(parent)
 {
@@ -21,13 +26,15 @@ void Worker::clearRom()
     m_romPath.clear();
 }
 
-void Worker::loadRom(const std::string& romPath)
+void Worker::loadRom(const QString& romPath)
 {
     clearRom();
 
-    emit log("Reading file: " + romPath + "\n");
+    const std::string path = romPath.toStdString();
 
-    auto romData = utils::readBinaryFile(romPath);
+    emit log("Reading file: " + path + "\n");
+
+    auto romData = utils::readBinaryFile(path);
     if (romData.empty())
     {
         emit log("Failed to read file\n");
@@ -36,14 +43,40 @@ void Worker::loadRom(const std::string& romPath)
     }
 
     m_romData = std::move(romData);
-    m_romPath = romPath;
+    m_romPath = path;
 
     emit log("Parsing filesystem...\n");
     m_fs = std::make_unique<NDS::NDSFileSystem>(m_romData.data(), m_romData.size());
-    m_fs->getRomFileSystem();
+    m_fs->getRomFileSystem(true);
 
-    emit log("Loaded " + std::to_string(m_romData.size()) + " bytes.\n");
+    const NdsFileEntryList entries = buildEntryList();
+
+    emit log("Loaded " + std::to_string(m_romData.size()) + " bytes, " + std::to_string(entries.size()) + " files.\n");
+
+    emit filesystemListed(entries);
     emit romLoaded(true);
+}
+
+NdsFileEntryList Worker::buildEntryList() const
+{
+    NdsFileEntryList list;
+    if (!m_fs)
+        return list;
+
+    const auto& entries = m_fs->getAllEntries();
+    list.reserve(static_cast<int>(entries.size()));
+
+    for (const auto& entry : entries)
+    {
+        NdsFileEntry e;
+        e.path = QString::fromStdString(entry.filename);
+        e.type = QString::fromStdString(entry.type);
+        e.size = static_cast<quint64>(entry.size);
+
+        list.push_back(e);
+    }
+
+    return list;
 }
 
 void Worker::printFilesystem()
@@ -65,7 +98,7 @@ void Worker::printFilesystem()
     emit taskFinished(true);
 }
 
-void Worker::exportStrings(const std::string& outFolder)
+void Worker::exportStrings(const QString& outFolder, const QStringList& files)
 {
     if (!m_fs)
     {
@@ -74,9 +107,36 @@ void Worker::exportStrings(const std::string& outFolder)
         return;
     }
 
-    emit log("Exporting strings to: " + outFolder + "\n");
+    if (files.isEmpty())
+    {
+        emit log("No files selected.\n");
+        emit taskFinished(false);
+        return;
+    }
 
-    // TODO: write output string data
+    emit log("Exporting strings to: " + outFolder.toStdString() + "\n");
+
+    for (const QString& file : files)
+    {
+        const std::string filePath = file.toStdString();
+
+        auto* entry = m_fs->findEntryByName(filePath);
+        if (entry)
+        {
+            if (entry->type == "P2")
+            {
+                auto* data = m_romData.data() + entry->start;
+                auto p2file = ndsloc::P2Archive(data, entry->size);
+                auto fileName = QFileInfo(QString::fromStdString(filePath)).baseName();
+                auto outPath = QDir(outFolder).filePath(fileName + ".txt");
+                p2file.exportAllCAKPStrings(outPath.toStdString());
+            }
+            else
+            {
+                // Not implemented
+            }
+        }
+    }
 
     emit taskFinished(true);
 }

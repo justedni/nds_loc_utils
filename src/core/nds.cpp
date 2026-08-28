@@ -110,13 +110,36 @@ void string_tolower(std::string& str)
 	std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) { return std::tolower(c); });
 }
 
+std::string getFileExtension(const std::string& path)
+{
+	const std::size_t sep = path.find_last_of("/\\");
+	const std::size_t start = (sep == std::string::npos) ? 0 : sep + 1;
+	const std::size_t dot = path.find_last_of('.');
+
+	if (dot == std::string::npos || dot < start || dot == start || dot + 1 == path.size())
+		return {};
+
+	return path.substr(dot + 1);
+}
+
+std::string sniffFileFormat(const void* data, std::size_t size)
+{
+	static constexpr char kP2[] = { 'P', '2' };
+	if (data && size >= sizeof(kP2) &&
+		std::memcmp(data, kP2, sizeof(kP2)) == 0)
+	{
+		return "P2";
+	}
+	return "";
+}
+
 NDSFileSystem::NDSFileSystem(const uint8_t* rom, uint32_t romSize)
 	: m_pRom (rom)
 	, m_nRomSize(romSize)
 {
 }
 
-void NDSFileSystem::getRomFileSystem()
+void NDSFileSystem::getRomFileSystem(bool bSkipOverlays)
 {
 	auto* m_pHeader = (NDSHEADER*)m_pRom;
 
@@ -138,49 +161,39 @@ void NDSFileSystem::getRomFileSystem()
 		{m_pHeader->Banner_Offset, m_pHeader->Banner_Offset + 0x840, OverlayFiles + "banner.bin" }
 	};
 
-	UINT m_nOverlayFiles9 = m_pHeader->Arm9_Overlay_Size / sizeof(OVERLAYENTRY);
-	UINT m_nOverlayFiles7 = m_pHeader->Arm7_Overlay_Size / sizeof(OVERLAYENTRY);
-
-	int nItem = 0;
-
-	UINT m_nOverlayFileSize = 0;
-	OVERLAYENTRY OverlayEntry;
-	NDSFILEREC* pFileRec;
-	for (UINT i = 0; i < m_nOverlayFiles9; i++)
+	if (!bSkipOverlays)
 	{
-		OverlayFiles = string_format(OVERLAY_FMT, 9, i);
-		memcpy(&OverlayEntry, m_pRom + m_pHeader->Arm9_Overlay_Offset + sizeof(OverlayEntry) * i, sizeof(OverlayEntry));
+		UINT m_nOverlayFiles9 = m_pHeader->Arm9_Overlay_Size / sizeof(OVERLAYENTRY);
+		UINT m_nOverlayFiles7 = m_pHeader->Arm7_Overlay_Size / sizeof(OVERLAYENTRY);
 
-		pFileRec = (NDSFILEREC*)(m_pRom + m_pHeader->Fat_Offset + (OverlayEntry.file_id << 3));
-		m_nOverlayFileSize += pFileRec->bottom - pFileRec->top;
+		UINT m_nOverlayFileSize = 0;
+		OVERLAYENTRY OverlayEntry;
+		NDSFILEREC* pFileRec;
+		for (UINT i = 0; i < m_nOverlayFiles9; i++)
+		{
+			OverlayFiles = string_format(OVERLAY_FMT, 9, i);
+			memcpy(&OverlayEntry, m_pRom + m_pHeader->Arm9_Overlay_Offset + sizeof(OverlayEntry) * i, sizeof(OverlayEntry));
 
-		m_foundEntries.emplace_back(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top);
-		nItem++;
-	}
+			pFileRec = (NDSFILEREC*)(m_pRom + m_pHeader->Fat_Offset + (OverlayEntry.file_id << 3));
+			m_nOverlayFileSize += pFileRec->bottom - pFileRec->top;
 
-	for (UINT i = 0; i < m_nOverlayFiles7; i++)
-	{
-		OverlayFiles = string_format(OVERLAY_FMT, 7, i);
-		memcpy(&OverlayEntry, m_pRom + m_pHeader->Arm7_Overlay_Offset + sizeof(OverlayEntry) * i, sizeof(OverlayEntry));
+			addEntry(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top);
+		}
 
-		pFileRec = (NDSFILEREC*)(m_pRom + m_pHeader->Fat_Offset + (OverlayEntry.file_id << 3));
-		m_nOverlayFileSize += pFileRec->bottom - pFileRec->top;
+		for (UINT i = 0; i < m_nOverlayFiles7; i++)
+		{
+			OverlayFiles = string_format(OVERLAY_FMT, 7, i);
+			memcpy(&OverlayEntry, m_pRom + m_pHeader->Arm7_Overlay_Offset + sizeof(OverlayEntry) * i, sizeof(OverlayEntry));
 
-		m_foundEntries.emplace_back(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top);
-		nItem++;
+			pFileRec = (NDSFILEREC*)(m_pRom + m_pHeader->Fat_Offset + (OverlayEntry.file_id << 3));
+			m_nOverlayFileSize += pFileRec->bottom - pFileRec->top;
+
+			addEntry(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top);
+		}
 	}
 
 	OverlayFiles = "/";
 	extractDirectory(OverlayFiles);
-
-	m_nRomFitSize +=
-		sizeof(NDSHEADER)						//ndsheader
-		+ m_pHeader->Arm9_Size					//arm9
-		+ m_pHeader->Arm7_Size					//arm7
-		+ m_pHeader->Arm9_Overlay_Size			//arm9ovltable
-		+ m_pHeader->Arm7_Overlay_Size			//arm7ovltable
-		+ 0x840									//banner
-		+ m_nOverlayFileSize;					//OverlayFileSize
 }
 
 void NDSFileSystem::extractDirectory(const std::string& ParentDir, uint8_t nID)
@@ -224,13 +237,23 @@ void NDSFileSystem::extractDirectory(const std::string& ParentDir, uint8_t nID)
 		NDSFILEREC *pFileRec;
 		pFileRec = (NDSFILEREC*)(m_pRom+m_pHeader->Fat_Offset+(FileID<<3));
 		nPos = pFileRec->bottom - pFileRec->top;
-		m_nRomFitSize+=nPos;
 
 		strFilePathName = string_format("%s%s", ParentDir.c_str(), m_FileName);
 
-		m_foundEntries.emplace_back(strFilePathName, pFileRec->top, nPos);
+		addEntry(strFilePathName, pFileRec->top, nPos);
 		FileID++;
 	}
+}
+
+void NDSFileSystem::addEntry(std::string& path, int start, int size)
+{
+	auto ext = getFileExtension(path);
+	if (ext.empty())
+	{
+		ext = sniffFileFormat(m_pRom + start, size);
+	}
+
+	m_foundEntries.emplace_back(path, ext, start, size);
 }
 
 NDSEntry* NDSFileSystem::findEntryByOffset(uint32_t offset)
