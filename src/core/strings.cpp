@@ -11,12 +11,8 @@ namespace strings {
 
 void writeString(std::ofstream& os, std::pair<int, std::string>& pair)
 {
-    bool bToUpper = false;
-
-    std::string str = pair.second;
-
     os << "0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << pair.first << "=";
-    os << str << "\n";
+    os << pair.second << "\n";
 }
 
 StringList exportStringsFromBuffer(const uint8_t* rom, int totalSize, int addressStart, bool bRemoveForb)
@@ -99,6 +95,38 @@ StringList exportStringsFromBuffer(const uint8_t* rom, int totalSize, int addres
     }
 
     return ret;
+}
+
+static std::string csvEscape(const std::string& in)
+{
+    if (in.find_first_of(",\"\r\n") == std::string::npos)
+        return in;
+
+    std::string out;
+    out.reserve(in.size() + 2);
+    out.push_back('"');
+    for (char c : in) {
+        if (c == '"') out.push_back('"');
+        out.push_back(c);
+    }
+    out.push_back('"');
+    return out;
+}
+
+std::ofstream startCsvFile(const std::string& out_path)
+{
+    std::ofstream os(out_path);
+    os << "file,subfile,offset,text\n";
+    return std::move(os);
+}
+
+void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, const std::pair<int, std::string>& pair)
+{
+    os << filename;
+    os << ',' << subfilename;
+    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << pair.first;
+    os << ',' << csvEscape(pair.second);
+    os << '\n';
 }
 
 } // namespace strings

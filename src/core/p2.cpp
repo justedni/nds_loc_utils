@@ -175,10 +175,8 @@ void P2Archive::saveToDisk(const std::string& outPath)
     utils::saveBinaryFile(m_inputBuffer, outPath);
 }
 
-void P2Archive::exportAllCAKPStrings(const std::string& outPath)
+void P2Archive::retrieveAllStringsFromChildren()
 {
-    std::ofstream os(outPath);
-
     m_strings.clear();
     m_strings.resize(m_subfiles.size());
 
@@ -191,7 +189,18 @@ void P2Archive::exportAllCAKPStrings(const std::string& outPath)
 
         const auto buffer = lzss.getConvertedData();
         m_strings[i] = strings::exportStringsFromBuffer(buffer.data(), buffer.size(), 0);
-        
+    }
+}
+
+void P2Archive::exportAllCAKPStringsToIni(const std::string& outPath)
+{
+    retrieveAllStringsFromChildren();
+
+    std::ofstream os(outPath);
+
+    for (int i = 0; i < m_subfiles.size(); i++)
+    {
+        auto& subfile = m_subfiles[i];
         auto& strings = m_strings[i];
         if (!strings.empty())
         {
@@ -207,6 +216,24 @@ void P2Archive::exportAllCAKPStrings(const std::string& outPath)
             }
 
             os << "\n";
+        }
+    }
+}
+
+void P2Archive::exportAllCAKPStringsToCsv(std::ofstream& os, const std::string& filename)
+{
+    retrieveAllStringsFromChildren();
+
+    for (int i = 0; i < m_subfiles.size(); i++)
+    {
+        auto& subfile = m_subfiles[i];
+        auto& strings = m_strings[i];
+
+        int id = 0;
+        for (auto& pair : strings)
+        {
+            strings::writeCsvLine(os, filename, subfile.fileName, pair);
+            id++;
         }
     }
 }

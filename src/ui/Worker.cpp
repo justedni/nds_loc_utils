@@ -4,11 +4,13 @@
 
 #include "core/nds.h"
 #include "core/utils.h"
-
 #include "core/p2.h"
+#include "core/strings.h"
 
 #include <QFileInfo>
 #include <QDir>
+
+#include <fstream>
 
 Worker::Worker(QObject* parent)
     : QObject(parent)
@@ -116,6 +118,10 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
 
     emit log("Exporting strings to: " + outFolder.toStdString() + "\n");
 
+    auto outPath = QDir(outFolder).filePath("strings.csv");
+
+    std::ofstream os = ndsloc::strings::startCsvFile(outPath.toStdString());
+
     for (const QString& file : files)
     {
         const std::string filePath = file.toStdString();
@@ -127,9 +133,9 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
             {
                 auto* data = m_romData.data() + entry->start;
                 auto p2file = ndsloc::P2Archive(data, entry->size);
+
                 auto fileName = QFileInfo(QString::fromStdString(filePath)).baseName();
-                auto outPath = QDir(outFolder).filePath(fileName + ".txt");
-                p2file.exportAllCAKPStrings(outPath.toStdString());
+                p2file.exportAllCAKPStringsToCsv(os, fileName.toStdString());
             }
             else
             {

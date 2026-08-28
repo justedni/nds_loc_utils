@@ -11,5 +11,8 @@ typedef std::vector<std::pair<int, std::string>> StringList;
 StringList exportStringsFromBuffer(const uint8_t* rom, int totalSize, int addressStart, bool bRemoveForb = true);
 void writeString(std::ofstream& os, std::pair<int, std::string>& pair);
 
+std::ofstream startCsvFile(const std::string& out_path);
+void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, const std::pair<int, std::string>& pair);
+
 } // namespace strings
 } // namespace ndsloc

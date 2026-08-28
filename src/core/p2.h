@@ -39,13 +39,15 @@ public:
     void updateEntry(int id, const uint8_t* data, uint32_t dataSize);
     void saveToDisk(const std::string& outPath);
 
-    void exportAllCAKPStrings(const std::string& outPath);
+    void exportAllCAKPStringsToIni(const std::string& outPath);
+    void exportAllCAKPStringsToCsv(std::ofstream& os, const std::string& filename);
     void importCAKPStringsFromIni(const std::string& iniFilePath);
 
     const std::vector<uint8_t>& getData() const { return m_inputBuffer; }
 
 private:
     void readFileTable();
+    void retrieveAllStringsFromChildren();
     void updateTableSizes();
     void replaceStrings(int chunkId, const std::vector<std::pair<int, std::string>>& strings);
 
