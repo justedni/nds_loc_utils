@@ -1,9 +1,16 @@
 #include "QtNDSLocUtils.h"
 
+#include <QAction>
+#include <QClipboard>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QDir>
+#include <QMenu>
+#include <QMessageBox>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStatusBar>
 #include <QTextCursor>
 #include <QTreeWidgetItem>
@@ -21,9 +28,30 @@ namespace
     constexpr int IsFileRole = Qt::UserRole + 3;
 
     const QStringList kDefaultSelection = {
+        QStringLiteral("/db/db_en.p2"),
         QStringLiteral("/mi/mi/10000"),
+        QStringLiteral("/UI/cm/str/rpt_en.z"),
+        QStringLiteral("/UI/cm/str/cfg_en.s.z"),
+        QStringLiteral("/UI/cm/str/enm_en.s.z"),
+        QStringLiteral("/UI/cm/str/enm_en.z"),
+        QStringLiteral("/UI/cm/str/panel_en.s.z"),
+        QStringLiteral("/UI/cm/str/root_en.s.z"),
+        QStringLiteral("/UI/cm/str/rpt_en.s.z"),
+        QStringLiteral("/UI/cm/str/rpt_en.z"),
+        QStringLiteral("/UI/cm/str/sav_en.s.z"),
+        QStringLiteral("/UI/cm/str/select_en.s.z"),
+        QStringLiteral("/UI/cm/str/status_en.s.z"),
+        QStringLiteral("/UI/cm/str/ttl_en.s.z"),
+        QStringLiteral("/UI/cm/str/world_id_en.s.z"),
         //QStringLiteral("*.p2"),
     };
+
+    void setExpandedRecursive(QTreeWidgetItem* item, bool expanded)
+    {
+        item->setExpanded(expanded);
+        for (int i = 0; i < item->childCount(); ++i)
+            setExpandedRecursive(item->child(i), expanded);
+    }
 
     QString humanSize(quint64 bytes)
     {
@@ -64,9 +92,13 @@ QtNDSLocUtils::QtNDSLocUtils(QWidget* parent)
 
     connect(this, &QtNDSLocUtils::requestLoadRom, m_worker, &Worker::loadRom);
     connect(this, &QtNDSLocUtils::requestPrintFilesystem, m_worker, &Worker::printFilesystem);
+    connect(this, &QtNDSLocUtils::requestExtractFiles, m_worker, &Worker::extractP2Files);
     connect(this, &QtNDSLocUtils::requestExportStrings, m_worker, &Worker::exportStrings);
 
     connect(ui.treeFiles, &QTreeWidget::itemChanged, this, &QtNDSLocUtils::onTreeItemChanged);
+
+    ui.treeFiles->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui.treeFiles, &QTreeWidget::customContextMenuRequested, this, &QtNDSLocUtils::onTreeContextMenu);
 
     m_workerThread.start();
 
@@ -111,6 +143,11 @@ void QtNDSLocUtils::on_browseRom_clicked()
     if (romPath.isEmpty())
         return;
 
+    loadRom(romPath);
+}
+
+void QtNDSLocUtils::loadRom(QString romPath)
+{
     ui.lineRomPath->setText(romPath);
 
     m_bRomLoaded = false;
@@ -386,6 +423,42 @@ void QtNDSLocUtils::setAllChecked(Qt::CheckState state)
     updateUiState();
 }
 
+void QtNDSLocUtils::setItemsChecked(const QList<QTreeWidgetItem*>& items, Qt::CheckState state)
+{
+    if (items.isEmpty())
+        return;
+
+    m_updatingTree = true;
+    ui.treeFiles->setUpdatesEnabled(false);
+
+    for (QTreeWidgetItem* item : items)
+    {
+        item->setCheckState(ColumnName, state);
+        setCheckStateRecursive(item, state);
+    }
+
+    recomputeFolderStates(ui.treeFiles->invisibleRootItem());
+
+    ui.treeFiles->setUpdatesEnabled(true);
+    m_updatingTree = false;
+
+    updateSelectionInfo();
+    updateUiState();
+}
+
+void QtNDSLocUtils::collectFilePaths(const QTreeWidgetItem* item, QStringList& out) const
+{
+    for (int i = 0; i < item->childCount(); ++i)
+    {
+        const QTreeWidgetItem* child = item->child(i);
+
+        if (child->data(ColumnName, IsFileRole).toBool())
+            out << child->data(ColumnName, PathRole).toString();
+        else
+            collectFilePaths(child, out);
+    }
+}
+
 void QtNDSLocUtils::collectCheckedFiles(const QTreeWidgetItem* item, QStringList& out) const
 {
     for (int i = 0; i < item->childCount(); ++i)
@@ -511,4 +584,195 @@ void QtNDSLocUtils::applyDefaultSelection()
     {
         ui.treeFiles->scrollToItem(firstMatch, QAbstractItemView::PositionAtCenter);
     }
+}
+
+
+void QtNDSLocUtils::onTreeContextMenu(const QPoint& pos)
+{
+    if (m_bIsBusy)
+        return;
+
+    QTreeWidgetItem* clicked = ui.treeFiles->itemAt(pos);
+
+    QMenu menu(this);
+
+    if (clicked == nullptr)
+    {
+        QAction* expandAll = menu.addAction(tr("Expand all"));
+        connect(expandAll, &QAction::triggered, ui.treeFiles, &QTreeWidget::expandAll);
+
+        QAction* collapseAll = menu.addAction(tr("Collapse all"));
+        connect(collapseAll, &QAction::triggered, ui.treeFiles, &QTreeWidget::collapseAll);
+
+        menu.exec(ui.treeFiles->viewport()->mapToGlobal(pos));
+        return;
+    }
+
+    if (!ui.treeFiles->selectedItems().contains(clicked))
+        ui.treeFiles->setCurrentItem(clicked);
+
+    const TreeContext ctx = buildTreeContext(clicked);
+
+    if (ctx.hasFolders)
+        addFolderActions(menu, ctx);
+
+    if (ctx.hasFiles)
+        addFileActions(menu, ctx);
+
+    addCommonActions(menu, ctx);
+
+    if (!menu.isEmpty())
+    {
+        menu.exec(ui.treeFiles->viewport()->mapToGlobal(pos));
+    }
+}
+
+QtNDSLocUtils::TreeContext QtNDSLocUtils::buildTreeContext(QTreeWidgetItem* clicked) const
+{
+    TreeContext ctx;
+    ctx.clicked = clicked;
+
+    QList<QTreeWidgetItem*> selection = ui.treeFiles->selectedItems();
+    if (selection.isEmpty())
+        selection << clicked;
+
+    const QSet<QTreeWidgetItem*> selectionSet(selection.begin(), selection.end());
+
+    for (QTreeWidgetItem* item : selection)
+    {
+        bool coveredByAncestor = false;
+        for (QTreeWidgetItem* p = item->parent(); p != nullptr; p = p->parent())
+        {
+            if (selectionSet.contains(p))
+            {
+                coveredByAncestor = true;
+                break;
+            }
+        }
+
+        if (!coveredByAncestor)
+            ctx.items << item;
+    }
+
+    for (QTreeWidgetItem* item : ctx.items)
+    {
+        if (item->data(ColumnName, IsFileRole).toBool())
+        {
+            ctx.hasFiles = true;
+            ctx.filePaths << item->data(ColumnName, PathRole).toString();
+        }
+        else
+        {
+            ctx.hasFolders = true;
+            collectFilePaths(item, ctx.filePaths);
+        }
+    }
+
+    QString suffix;
+    bool uniform = !ctx.filePaths.isEmpty();
+
+    for (const QString& path : ctx.filePaths)
+    {
+        const QString s = QFileInfo(path).suffix().toLower();
+        if (suffix.isEmpty())
+            suffix = s;
+        else if (s != suffix)
+        {
+            uniform = false;
+            break;
+        }
+    }
+
+    if (uniform)
+        ctx.commonType = suffix;
+
+    return ctx;
+}
+
+void QtNDSLocUtils::addFolderActions(QMenu& menu, const TreeContext& ctx)
+{
+    QAction* expand = menu.addAction(tr("Expand"));
+    connect(expand, &QAction::triggered, this, [ctx]() {
+        for (QTreeWidgetItem* item : ctx.items)
+            setExpandedRecursive(item, true);
+    });
+
+    QAction* collapse = menu.addAction(tr("Collapse"));
+    connect(collapse, &QAction::triggered, this, [ctx]() {
+        for (QTreeWidgetItem* item : ctx.items)
+            setExpandedRecursive(item, false);
+    });
+
+    menu.addSeparator();
+}
+
+void QtNDSLocUtils::addFileActions(QMenu& menu, const TreeContext& ctx)
+{
+    // ---- Actions valid for any file ----
+    QAction* extract = menu.addAction(ctx.filePaths.size() > 1
+        ? tr("Extract %1 files...").arg(ctx.filePaths.size())
+        : tr("Extract raw file..."));
+    connect(extract, &QAction::triggered, this, [this, ctx]() { actionExtractRaw(ctx); });
+
+    menu.addSeparator();
+}
+
+void QtNDSLocUtils::addCommonActions(QMenu& menu, const TreeContext& ctx)
+{
+    QAction* tick = menu.addAction(tr("Tick for export"));
+    tick->setEnabled(!ctx.items.isEmpty());
+    connect(tick, &QAction::triggered, this, [this, ctx]() {
+        setItemsChecked(ctx.items, Qt::Checked);
+    });
+
+    QAction* untick = menu.addAction(tr("Untick"));
+    untick->setEnabled(!ctx.items.isEmpty());
+    connect(untick, &QAction::triggered, this, [this, ctx]() {
+        setItemsChecked(ctx.items, Qt::Unchecked);
+    });
+
+    menu.addSeparator();
+
+    QAction* copyPath = menu.addAction(ctx.items.size() > 1
+        ? tr("Copy %1 paths").arg(ctx.items.size())
+        : tr("Copy path"));
+    connect(copyPath, &QAction::triggered, this, [ctx]() {
+        QStringList paths;
+        for (QTreeWidgetItem* item : ctx.items)
+            paths << item->data(ColumnName, PathRole).toString();
+
+        QGuiApplication::clipboard()->setText(paths.join('\n'));
+    });
+}
+
+void QtNDSLocUtils::actionExtractRaw(const TreeContext& ctx)
+{
+    if (ctx.filePaths.isEmpty())
+        return;
+
+    QString startDir = m_lastExtractFolder;
+    if (startDir.isEmpty())
+        startDir = ui.lineTargetFolder->text();
+    if (startDir.isEmpty())
+        startDir = QFileInfo(ui.lineRomPath->text()).absolutePath();
+
+    const QString outFolder = QFileDialog::getExistingDirectory(
+        this,
+        tr("Extract %1 file(s) to...").arg(ctx.filePaths.size()),
+        startDir);
+
+    if (outFolder.isEmpty())
+        return;
+
+    if (!QFileInfo(outFolder).isWritable())
+    {
+        QMessageBox::warning(this, tr("Extract"), tr("This folder is not writable:\n%1").arg(outFolder));
+        return;
+    }
+
+    m_lastExtractFolder = outFolder;
+
+    appendLog("Extracting " + std::to_string(ctx.filePaths.size()) + " file(s) to: " + outFolder.toStdString() + "\n");
+
+    emit requestExtractFiles(outFolder, ctx.filePaths);
 }

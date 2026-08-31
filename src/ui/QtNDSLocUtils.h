@@ -21,9 +21,12 @@ public:
     QtNDSLocUtils(QWidget* parent = nullptr);
     ~QtNDSLocUtils();
 
+    void loadRom(QString romPath);
+
 signals:
     void requestLoadRom(const QString& romPath);
     void requestPrintFilesystem();
+    void requestExtractFiles(const QString& outFolder, const QStringList& files);
     void requestExportStrings(const QString& outFolder, const QStringList& files);
 
 private slots:
@@ -35,12 +38,22 @@ private slots:
     void on_buttonSelectNone_clicked();
 
 private:
+    struct TreeContext
+    {
+        QTreeWidgetItem* clicked = nullptr;
+        QList<QTreeWidgetItem*> items;
+        QStringList filePaths;
+
+        bool hasFiles = false;
+        bool hasFolders = false;
+        QString commonType;
+    };
+
     void appendLog(const std::string& text);
     void onRomLoaded(bool success);
     void onFilesystemListed(const NdsFileEntryList& entries);
     void onTaskFinished(bool success);
 
-    // File tree
     void clearFileTree();
     void populateFileTree(const NdsFileEntryList& entries);
     void onTreeItemChanged(QTreeWidgetItem* item, int column);
@@ -48,7 +61,9 @@ private:
     void refreshParentCheckState(QTreeWidgetItem* item);
     void recomputeFolderStates(QTreeWidgetItem* item);
     void setAllChecked(Qt::CheckState state);
+    void setItemsChecked(const QList<QTreeWidgetItem*>& items, Qt::CheckState state);
     void collectCheckedFiles(const QTreeWidgetItem* item, QStringList& out) const;
+    void collectFilePaths(const QTreeWidgetItem* item, QStringList& out) const;
     QStringList selectedFiles() const;
     void updateSelectionInfo();
 
@@ -56,7 +71,14 @@ private:
     QList<QTreeWidgetItem*> matchPattern(const QString& pattern) const;
     void expandAncestors(QTreeWidgetItem* item);
 
-    // UI state
+    void onTreeContextMenu(const QPoint& pos);
+    TreeContext buildTreeContext(QTreeWidgetItem* clicked) const;
+    void addFolderActions(QMenu& menu, const TreeContext& ctx);
+    void addFileActions(QMenu& menu, const TreeContext& ctx);
+    void addCommonActions(QMenu& menu, const TreeContext& ctx);
+
+    void actionExtractRaw(const TreeContext& ctx);
+
     void beginTask();
     void updateUiState();
 
@@ -70,5 +92,6 @@ private:
     bool m_updatingTree = false;
     int m_selectedCount = 0;
 
+    QString m_lastExtractFolder;
     QHash<QString, QTreeWidgetItem*> m_fileItems;
 };
