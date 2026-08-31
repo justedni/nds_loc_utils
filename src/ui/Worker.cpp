@@ -5,7 +5,10 @@
 #include "core/nds.h"
 #include "core/utils.h"
 #include "core/p2.h"
+#include "core/cakp.h"
 #include "core/strings.h"
+#include "core/stringtable.h"
+#include "core/lzss.h"
 
 #include <QFileInfo>
 #include <QDir>
@@ -100,8 +103,59 @@ void Worker::printFilesystem()
     emit taskFinished(true);
 }
 
+void Worker::extractP2Files(const QString& outFolder, const QStringList& files)
+{
+    for (const QString& file : files)
+    {
+        const std::string filePath = file.toStdString();
+
+        auto* entry = m_fs->findEntryByName(filePath);
+        if (entry)
+        {
+            auto* data = m_romData.data() + entry->start;
+
+            if (entry->type == "p2")
+            {
+                auto p2file = ndsloc::P2File(data, entry->size);
+
+                auto& subfiles = p2file.getFileTable();
+                for (auto& subfile : subfiles)
+                {
+                    ndsloc::LZSSFile file(subfile.inputPtr, subfile.fileSize);
+                    file.decompress();
+
+                    auto outPath = QDir(outFolder).filePath(QString::fromStdString(subfile.getFilename()));
+                    file.saveToDisk(outPath.toStdString());
+                }
+            }
+            else
+            {
+                auto fileInfo = QFileInfo(QString::fromStdString(filePath));
+                auto outPath = QDir(outFolder).filePath(fileInfo.fileName());
+                
+                auto suffix = fileInfo.suffix().toLower();
+                if (suffix == "z")
+                {
+                    ndsloc::LZSSFile file(data, entry->size);
+                    file.decompress();
+                    file.saveToDisk(outPath.toStdString());
+                }
+                else
+                {
+                    std::ofstream os(outPath.toStdString(), std::ofstream::binary);
+                    os.write((char*)data, entry->size);
+                }
+            }
+        }
+    }
+
+    emit taskFinished(true);
+}
+
 void Worker::exportStrings(const QString& outFolder, const QStringList& files)
 {
+    using namespace ndsloc;
+
     if (!m_fs)
     {
         emit log("No ROM loaded.\n");
@@ -120,7 +174,7 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
 
     auto outPath = QDir(outFolder).filePath("strings.csv");
 
-    std::ofstream os = ndsloc::strings::startCsvFile(outPath.toStdString());
+    std::ofstream os = strings::startCsvFile(outPath.toStdString());
 
     for (const QString& file : files)
     {
@@ -129,13 +183,61 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
         auto* entry = m_fs->findEntryByName(filePath);
         if (entry)
         {
-            if (entry->type == "P2")
-            {
-                auto* data = m_romData.data() + entry->start;
-                auto p2file = ndsloc::P2Archive(data, entry->size);
+            auto* data = m_romData.data() + entry->start;
+            auto fileInfo = QFileInfo(QString::fromStdString(filePath));
+            auto fileName = fileInfo.baseName();
 
-                auto fileName = QFileInfo(QString::fromStdString(filePath)).baseName();
-                p2file.exportAllCAKPStringsToCsv(os, fileName.toStdString());
+            if (entry->type == "p2")
+            {
+                P2File file(data, entry->size);
+                std::vector<String> out_strings;
+                file.extractStrings(out_strings);
+                strings::writeStringsToCsv(os, fileName.toStdString(), out_strings);
+            }
+            else if (entry->type == "z")
+            {
+                LZSSFile lzss(data, entry->size);
+                lzss.decompress();
+
+                const auto decompressed = lzss.getConvertedData();
+                auto* data = decompressed.data();
+                auto dataSize = static_cast<uint32_t>(decompressed.size());
+
+                if (fileInfo.fileName().endsWith(".s.z")) // Compressed S file
+                {
+                    auto type = utils::getFileFormat(data, dataSize);
+                    assert(type == EFileFormat::StringDB_Short);
+                    auto u16strings = strings::exportDBStrings(data, dataSize, EFileFormat::StringDB_Short);
+                    strings::writeStringsToCsv(os, fileName.toStdString(), u16strings);
+                }
+                else if (StringTableFile::looksValid(data, dataSize))
+                {
+                    std::vector<U16String> wide;
+                    StringTableFile table(data, dataSize);
+                    const bool ok = table.extractStrings(wide);
+
+                    strings::writeStringsToCsv(os, fileName.toStdString(), wide);
+                }
+                else
+                {
+                    auto type = utils::getFileFormat(data, dataSize);
+                    if (type == EFileFormat::StringDB || type == EFileFormat::StringDB_Long)
+                    {
+                        auto u16strings = strings::exportDBStrings(data, dataSize, type);
+                        strings::writeStringsToCsv(os, fileName.toStdString(), u16strings);
+                    }
+                    else
+                    {
+                        assert(false);
+
+                        //CAKPFile cakp(data, dataSize, 0, "");
+                        ////cakp.setLanguage(m_language);
+                        //std::vector<String> out_strings;
+                        //const bool ok = cakp.extractStrings(out_strings);
+                        //assert(ok);
+                        //strings::writeStringsToCsv(os, fileName.toStdString(), out_strings);
+                    }
+                }
             }
             else
             {

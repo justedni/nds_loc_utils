@@ -19,6 +19,7 @@ public:
 public slots:
     void loadRom(const QString& romPath);
     void printFilesystem();
+    void extractP2Files(const QString& outFolder, const QStringList& files);
     void exportStrings(const QString& outFolder, const QStringList& files);
 
 signals:

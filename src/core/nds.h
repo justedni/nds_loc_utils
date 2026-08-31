@@ -8,13 +8,7 @@ namespace NDS {
 
 struct NDSEntry
 {
-	NDSEntry(const std::string& in_filename, const std::string& ext, int in_start, int in_size)
-		: filename(in_filename)
-		, type(ext)
-		, start(in_start)
-		, size(in_size)
-	{
-	}
+	NDSEntry(const std::string& in_filename, const std::string& ext, int in_start, int in_size);
 
 	std::string filename;
 	std::string type;

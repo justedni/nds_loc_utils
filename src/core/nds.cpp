@@ -5,6 +5,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include "utils.h"
+
 #define HEADERCOUNT 8
 #define OVERLAY_FMT	"/FSI.CT/overlay%d_%04d.bin"
 
@@ -122,15 +124,13 @@ std::string getFileExtension(const std::string& path)
 	return path.substr(dot + 1);
 }
 
-std::string sniffFileFormat(const void* data, std::size_t size)
+NDSEntry::NDSEntry(const std::string& in_filename, const std::string& ext, int in_start, int in_size)
+	: filename(in_filename)
+	, type(ext)
+	, start(in_start)
+	, size(in_size)
 {
-	static constexpr char kP2[] = { 'P', '2' };
-	if (data && size >= sizeof(kP2) &&
-		std::memcmp(data, kP2, sizeof(kP2)) == 0)
-	{
-		return "P2";
-	}
-	return "";
+	string_tolower(type);
 }
 
 NDSFileSystem::NDSFileSystem(const uint8_t* rom, uint32_t romSize)
@@ -250,7 +250,8 @@ void NDSFileSystem::addEntry(std::string& path, int start, int size)
 	auto ext = getFileExtension(path);
 	if (ext.empty())
 	{
-		ext = sniffFileFormat(m_pRom + start, size);
+		auto type = utils::getFileFormat(m_pRom + start, size);
+		ext = utils::getExtName(type);
 	}
 
 	m_foundEntries.emplace_back(path, ext, start, size);

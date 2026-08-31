@@ -14,6 +14,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 set(SOURCES_CORE
+    src/core/cakp.cpp
+    src/core/cakp.h
     src/core/lzss.cpp
     src/core/lzss.h
     src/core/nds.cpp
@@ -22,6 +24,8 @@ set(SOURCES_CORE
     src/core/p2.h
     src/core/strings.cpp
     src/core/strings.h
+    src/core/stringtable.cpp
+    src/core/stringtable.h
     src/core/utils.cpp
     src/core/utils.h
 )

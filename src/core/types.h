@@ -1,0 +1,35 @@
+#pragma once
+
+#include <stdint.h>
+
+namespace ndsloc {
+
+struct String
+{
+    String(uint32_t in_off, std::string&& in_text, uint32_t in_sectionOffset, std::string&& in_section)
+        : offset(in_off)
+        , text(std::move(in_text))
+        , sectionOffset(in_sectionOffset)
+        , section(std::move(in_section))
+    {
+    }
+
+    uint32_t offset = 0;
+    std::string text;
+
+    uint32_t sectionOffset = 0;
+    std::string section;
+};
+
+struct U16String
+{
+    U16String(uint32_t in_off, std::u16string&& in_text)
+        : offset(in_off)
+        , text(std::move(in_text))
+    { }
+
+    uint32_t offset = 0;
+    std::u16string text;
+};
+
+} // namespace ndsloc

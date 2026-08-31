@@ -3,11 +3,31 @@
 #include <string>
 #include <vector>
 
+#include "strings.h"
+
 namespace ndsloc {
 
-namespace strings {
-    typedef std::vector<std::pair<int, std::string>> StringList;
+namespace cakp {
+enum Language : uint8_t;
 }
+
+namespace p2 {
+
+static const uint32_t kSectorTableAt = 0x10;
+static const uint32_t kSectorSize = 0x200;
+static const uint32_t kNameLength = 8;
+
+static const uint8_t kTypePlain = 0x00;
+static const uint8_t kTypeNamed = 0x80;
+
+static const uint8_t kFlagCompressed = 0x80;
+
+static const uint8_t kLZ10 = 0x10;
+static const uint8_t kLZ11 = 0x11;
+
+bool isP2File(const uint8_t* buffer);
+
+} // namespace p2
 
 struct P2SubFile
 {
@@ -27,36 +47,40 @@ struct P2SubFile
         else
             return std::to_string(chunkId) + ".Z";
     }
+
+    bool isCompressed() const
+    {
+        return (someFlag & p2::kFlagCompressed) != 0;
+    }
 };
 
-class P2Archive
+class P2File
 {
 public:
-    P2Archive(const std::string& filePath);
-    P2Archive(const uint8_t* inputPtr, int inputSize);
+    P2File(const std::string& filePath);
+    P2File(const uint8_t* inputPtr, uint32_t inputSize);
 
-    std::vector<P2SubFile>& getFileTable() { return m_subfiles; }
-    void updateEntry(int id, const uint8_t* data, uint32_t dataSize);
+    const std::vector<P2SubFile>& getFileTable() { return m_subfiles; }
+
+    void setLanguage(cakp::Language language) { m_language = language; }
+
+    bool extractStrings(std::vector<String>& out);
+
     void saveToDisk(const std::string& outPath);
-
-    void exportAllCAKPStringsToIni(const std::string& outPath);
-    void exportAllCAKPStringsToCsv(std::ofstream& os, const std::string& filename);
-    void importCAKPStringsFromIni(const std::string& iniFilePath);
-
-    const std::vector<uint8_t>& getData() const { return m_inputBuffer; }
-
 private:
-    void readFileTable();
-    void retrieveAllStringsFromChildren();
-    void updateTableSizes();
-    void replaceStrings(int chunkId, const std::vector<std::pair<int, std::string>>& strings);
+    bool readFileTable();
+
+    bool extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vector<String>& out);
+    bool extractPayload(const P2SubFile& subfile, const uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out);
 
     std::vector<uint8_t> m_inputBuffer;
     const uint8_t* m_inputPtr = nullptr;
-    int m_inputSize = 0;
+    uint32_t m_inputSize = 0;
+    cakp::Language m_language;
+    static constexpr uint32_t m_maxDepth = 4;
 
     std::vector<P2SubFile> m_subfiles;
-    std::vector<strings::StringList> m_strings;
 };
+
 
 } // namespace ndsloc

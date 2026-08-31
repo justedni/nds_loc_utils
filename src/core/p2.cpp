@@ -7,61 +7,76 @@
 #include "utils.h"
 #include "lzss.h"
 #include "strings.h"
+#include "cakp.h"
+#include "stringtable.h"
 
 namespace ndsloc {
 
-P2Archive::P2Archive(const std::string& filePath)
+namespace p2 {
+
+bool isP2File(const uint8_t* buffer)
+{
+    return (std::memcmp(buffer, "P2", 2) == 0);
+}
+
+} // namespace p2
+
+P2File::P2File(const std::string& filePath)
 {
     m_inputBuffer = utils::readBinaryFile(filePath);
     m_inputPtr = m_inputBuffer.data();
     m_inputSize = m_inputBuffer.size();
-
-    readFileTable();
 }
 
-
-P2Archive::P2Archive(const uint8_t* inputPtr, int inputSize)
+P2File::P2File(const uint8_t* inputPtr, uint32_t inputSize)
     : m_inputPtr(inputPtr)
     , m_inputSize(inputSize)
+    , m_language(cakp::LANG_EN)
 {
-    readFileTable();
 }
 
-void P2Archive::readFileTable()
+
+bool P2File::readFileTable()
 {
     m_subfiles.clear();
 
     const uint8_t* dataPtr = m_inputPtr;
-    int inputSize = m_inputSize;
+    const uint32_t inputSize = m_inputSize;
 
-    if (dataPtr[0] != 0x50 && dataPtr[1] != 0x32)
-    {
-        assert(false); // Not a P2 file
-        return;
-    }
+    if (!p2::isP2File(dataPtr) || inputSize < p2::kSectorTableAt)
+        return false; // Not a P2 file
 
-    uint8_t fileCount = dataPtr[2];
-    uint8_t fileType = dataPtr[3];
-    uint32_t firstFileOffset = dataPtr[0xc] + (dataPtr[0xd] << 8) + (dataPtr[0xe] << 16);
+    const uint8_t fileCount = dataPtr[2];
+    const uint8_t fileType = dataPtr[3];
+    const uint32_t firstFileOffset = utils::readUInt24(dataPtr, 0x0C);
+
+    if (fileCount == 0)
+        return false;
+
+    if (fileType != p2::kTypePlain && fileType != p2::kTypeNamed)
+        return false; // Unknown P2 type
+
+    uint32_t currentPos = p2::kSectorTableAt;
+    if (currentPos + fileCount * 2 > inputSize)
+        return false;
 
     m_subfiles.resize(fileCount);
-    uint32_t currentPos = 0x10;
 
     for (int i = 0; i < fileCount; i++)
     {
-        uint16_t val = dataPtr[currentPos] + (dataPtr[currentPos + 1] << 8);
-        m_subfiles[i].fileOffset = firstFileOffset + val * 0x200;
-        m_subfiles[i].chunkId = i;
+        uint16_t val = utils::readUInt16(dataPtr, currentPos);
+        m_subfiles[i].fileOffset = firstFileOffset + val * p2::kSectorSize;
+        m_subfiles[i].chunkId = static_cast<uint16_t>(i);
         currentPos += 2;
     }
 
-    if (fileType == 0x80) // P2 file with bigger header containing filesizes and filenames
+    if (fileType == p2::kTypeNamed) // P2 file with bigger header containing filesizes and filenames
     {
         for (int i = 0; i < fileCount; i++)
         {
             auto& fileDesc = m_subfiles[i];
 
-            uint32_t val = dataPtr[currentPos] + (dataPtr[currentPos + 1] << 8) + (dataPtr[currentPos + 2] << 16);
+            uint32_t val = utils::readUInt24(dataPtr, currentPos);
             fileDesc.fileSize = val;
             if (i + 1 < fileCount)
             {
@@ -116,258 +131,131 @@ void P2Archive::readFileTable()
     }
 }
 
-void P2Archive::updateEntry(int id, const uint8_t* data, uint32_t dataSize)
-{
-    assert(id >= 0 && id < m_subfiles.size());
-    if (id < 0 || id >= m_subfiles.size())
-        return;
-
-    auto& fileDesc = m_subfiles[id];
-    assert(dataSize < fileDesc.maxSize);
-    if (dataSize < fileDesc.maxSize)
-    {
-        memcpy_s((void*)fileDesc.inputPtr, dataSize, data, dataSize);
-        int remaining = fileDesc.fileSize - dataSize;
-        if (remaining > 0)
-        {
-            memset((void*)(fileDesc.inputPtr + dataSize), 0, remaining);
-        }
-
-        fileDesc.fileSize = dataSize;
-    }
-
-    updateTableSizes();
-}
-
-void P2Archive::updateTableSizes()
-{
-    const uint8_t fileCount = m_subfiles.size();
-    uint8_t fileType = m_inputBuffer[3];
-
-    uint32_t currentPos = 0x10;
-    currentPos += (2 * fileCount);
-
-    if (fileType == 0x80) // P2 file with bigger header containing filesizes and filenames
-    {
-        for (int i = 0; i < fileCount; i++)
-        {
-            auto& fileDesc = m_subfiles[i];
-
-            int newSize = fileDesc.fileSize;
-            m_inputBuffer[currentPos] = static_cast<uint8_t>(newSize & 0xFF);
-            m_inputBuffer[currentPos + 1] = static_cast<uint8_t>((newSize >> 8) & 0xFF);
-            m_inputBuffer[currentPos + 2] = static_cast<uint8_t>((newSize >> 16) & 0xFF);
-            currentPos += 4;
-        }
-    }
-    else if (fileType == 0x00) // needs to deduce the chunk sizes
-    {
-        // The filesize is not saved in the table
-    }
-    else
-    {
-        assert(false); // Unknown P2 type
-    }
-}
-
-void P2Archive::saveToDisk(const std::string& outPath)
+void P2File::saveToDisk(const std::string& outPath)
 {
     utils::saveBinaryFile(m_inputBuffer, outPath);
 }
 
-void P2Archive::retrieveAllStringsFromChildren()
+void appendStrings(const std::vector<String>& strings, std::vector<String>& out)
 {
-    m_strings.clear();
-    m_strings.resize(m_subfiles.size());
-
-    for (int i = 0; i < m_subfiles.size(); i++)
+    for (auto& str : strings)
     {
-        auto& subfile = m_subfiles[i];
+        if (str.text == "\x01")
+            continue;
 
+        out.push_back(std::move(str));
+    }
+}
+
+void appendWideStrings(const P2SubFile& subfile, const std::vector<U16String>& strings, std::vector<String>& out)
+{
+    for (auto& str : strings)
+    {
+        out.emplace_back(str.offset, utf16ToUtf8(str.text), subfile.fileOffset, subfile.getFilename());
+    }
+}
+
+bool P2File::extractPayload(const P2SubFile& subfile, const uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out)
+{
+    assert(subfile.fileOffset == payloadOffset);
+
+    if (payload == nullptr || payloadSize < 8)
+        return true; // stub entries
+
+    std::vector<String> strings;
+
+    if (cakp::isCAKP(payload))
+    {
+        CAKPFile cakp(payload, payloadSize, payloadOffset, subfile.getFilename());
+        cakp.setLanguage(m_language);
+        const bool ok = cakp.extractStrings(strings);
+
+        appendStrings(strings, out);
+        return ok;
+    }
+
+    if (p2::isP2File(payload))
+    {
+        if (depth >= m_maxDepth)
+            return true;
+
+        P2File nested(payload, payloadSize);
+        nested.setLanguage(m_language);
+        //nested.setMaxDepth(m_maxDepth);
+
+        std::vector<String> nestedOut;
+        const bool ok = nested.extractStrings(nestedOut);
+        appendStrings(nestedOut, out);
+        return ok;
+    }
+
+    if (StringTableFile::looksValid(payload, payloadSize))
+    {
+        std::vector<U16String> wide;
+        StringTableFile table(payload, payloadSize);
+        const bool ok = table.extractStrings(wide);
+        appendWideStrings(subfile, wide, out);
+        return ok;
+    }
+
+    CAKPFile section(payload, payloadSize, payloadOffset, subfile.getFilename());
+    section.setLanguage(m_language);
+    section.extractSectionStrings(strings);
+    appendStrings(strings, out);
+    return true;
+}
+
+uint32_t getExpectedDecompressedSize(const uint8_t* dataPtr, uint32_t dataSize)
+{
+    if (dataSize < 4)
+        return 0;
+
+    const uint32_t packed = utils::readUInt24(dataPtr, 1);
+    if (packed != 0)
+        return packed;
+
+    return dataSize >= 8 ? utils::readUInt32(dataPtr, 4) : 0;
+}
+
+bool P2File::extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vector<String>& out)
+{
+    if (subfile.isCompressed())
+    {
         ndsloc::LZSSFile lzss(subfile.inputPtr, subfile.fileSize);
         lzss.decompress();
 
-        const auto buffer = lzss.getConvertedData();
-        m_strings[i] = strings::exportStringsFromBuffer(buffer.data(), buffer.size(), 0);
+        const auto decompressed = lzss.getConvertedData();
+        auto* data = decompressed.data();
+        auto dataSize = static_cast<uint32_t>(decompressed.size());
+
+        const uint32_t expected = getExpectedDecompressedSize(subfile.inputPtr, subfile.maxSize);
+        assert(expected == dataSize);
+
+        auto type = utils::getFileFormat(data, dataSize);
+
+        return extractPayload(subfile, data, dataSize, subfile.fileOffset, depth, out);
     }
-}
-
-void P2Archive::exportAllCAKPStringsToIni(const std::string& outPath)
-{
-    retrieveAllStringsFromChildren();
-
-    std::ofstream os(outPath);
-
-    for (int i = 0; i < m_subfiles.size(); i++)
+    else
     {
-        auto& subfile = m_subfiles[i];
-        auto& strings = m_strings[i];
-        if (!strings.empty())
-        {
-            os << "[";
-            os << std::to_string(subfile.chunkId);
-            os << ":";
-            os << subfile.fileName;
-            os << "]\n";
-
-            for (auto& elem : strings)
-            {
-                strings::writeString(os, elem);
-            }
-
-            os << "\n";
-        }
+        return extractPayload(subfile, subfile.inputPtr, subfile.fileSize, subfile.fileOffset, depth, out);
     }
 }
 
-void P2Archive::exportAllCAKPStringsToCsv(std::ofstream& os, const std::string& filename)
+bool P2File::extractStrings(std::vector<String>& out)
 {
-    retrieveAllStringsFromChildren();
+    out.clear();
 
-    for (int i = 0; i < m_subfiles.size(); i++)
-    {
-        auto& subfile = m_subfiles[i];
-        auto& strings = m_strings[i];
-
-        int id = 0;
-        for (auto& pair : strings)
-        {
-            strings::writeCsvLine(os, filename, subfile.fileName, pair);
-            id++;
-        }
-    }
-}
-
-void stripEol(std::string& line)
-{
-    while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
-    {
-        line.pop_back();
-    }
-}
-
-bool parseSectionHeader(const std::string& line, int& outChunkId, std::string& outFileName)
-{
-    if (line.size() < 3 || line.front() != '[' || line.back() != ']')
+    if (!readFileTable())
         return false;
 
-    const std::string content = line.substr(1, line.size() - 2);
-    const auto separator = content.find(':');
-    if (separator == std::string::npos)
-        return false;
-
-    outChunkId = std::stoi(content.substr(0, separator));
-    outFileName = content.substr(separator + 1);
-    return !outFileName.empty();
-}
-
-void P2Archive::replaceStrings(int chunkId, const std::vector<std::pair<int, std::string>>& strings)
-{
-    assert(chunkId >= 0 && chunkId < m_subfiles.size());
-    auto& subfile = m_subfiles[chunkId];
-
-    // Decompress first
-    ndsloc::LZSSFile previous(subfile.inputPtr, subfile.fileSize);
-    previous.decompress();
-
-    // Then replace the string
-    auto convData = previous.getConvertedData();
-
-    for (auto& targetStr : strings)
+    bool ok = true;
+    for (const P2SubFile& subfile : m_subfiles)
     {
-        // TODO: currently we don't check that the new size doesn't overflow!!
-        auto* targetPtr = convData.data() + targetStr.first;
-        auto& newStr = targetStr.second;
-        memcpy_s((void*)targetPtr, newStr.size(), newStr.data(), newStr.size());
+        if (!extractSubFile(subfile, 0, out))
+            ok = false;
     }
 
-    // And recompress
-    ndsloc::LZSSFile newer(convData.data(), convData.size());
-    newer.compress();
-
-    auto newerData = newer.getConvertedData();
-    updateEntry(chunkId, newerData.data(), newerData.size());
-}
-
-void P2Archive::importCAKPStringsFromIni(const std::string& iniFilePath)
-{
-    std::ifstream is(iniFilePath);
-
-    int currentChunkId = -1;
-    std::string currentSectionName;
-    std::vector<std::pair<int, std::string>> changedStrings;
-
-    int lineNumber = 0;
-
-    char entryname[32];
-    char entryval[1024];
-
-    int chunkToRegenerate = -1;
-
-    std::string line;
-    while (std::getline(is, line))
-    {
-        lineNumber++;
-        stripEol(line);
-
-        if (line.empty())
-            continue;
-
-        if (line[0] == '[')
-        {
-            if (chunkToRegenerate != -1)
-            {
-                replaceStrings(chunkToRegenerate, changedStrings);
-            }
-
-            chunkToRegenerate = -1;
-            changedStrings.clear();
-
-            int blockId = -1;
-            std::string blockName;
-            if (parseSectionHeader(line, blockId, blockName))
-            {
-                currentChunkId = blockId;
-                currentSectionName = blockName;
-            }
-            else
-            {
-                assert(false);
-            }
-
-            continue;
-        }
-        else
-        {
-
-            int ret = sscanf(line.c_str(), "%31[A-Za-z_0-9]=%[^\t\r\n]", entryname, entryval);
-            entryname[31] = '\0';
-            if (ret < 2)
-                continue;
-
-            std::string entrynameStr = std::string(entryname);
-            if (entrynameStr.compare(0, 2, "0x") == 0)
-            {
-                unsigned int addr = std::stoul(entrynameStr.substr(2), nullptr, 16);
-
-                assert(currentChunkId >= 0 && currentChunkId < m_strings.size());
-                auto& stringList = m_strings[currentChunkId];
-
-                auto found = std::find_if(stringList.begin(), stringList.end(), [&addr](auto& p) { return p.first == addr; });
-                if (found != stringList.end() && found->second != entryval)
-                {
-                    // String has changed: needs to regenerate
-                    chunkToRegenerate = currentChunkId;
-                    changedStrings.emplace_back(addr, entryval);
-                }
-            }
-        }
-    }
-
-    if (chunkToRegenerate != -1)
-    {
-        replaceStrings(chunkToRegenerate, changedStrings);
-    }
+    return ok;
 }
 
 } // namespace ndsloc
