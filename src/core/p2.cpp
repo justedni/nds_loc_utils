@@ -62,6 +62,12 @@ bool P2File::sizeTableLooksValid(uint32_t sizesAt) const
     return true;
 }
 
+const std::vector<P2SubFile>& P2File::readAndGetFileTable()
+{
+    readFileTable();
+    return m_subfiles;
+}
+
 bool P2File::readFileTable()
 {
     m_subfiles.clear();

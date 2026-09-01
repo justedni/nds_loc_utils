@@ -20,7 +20,9 @@ public slots:
     void loadRom(const QString& romPath);
     void printFilesystem();
     void extractP2Files(const QString& outFolder, const QStringList& files);
+    void extractZFiles(const QString& outFolder, const QStringList& files);
     void exportStrings(const QString& outFolder, const QStringList& files, uint8_t format);
+    void extractRawFiles(const QString& outFolder, const QStringList& files);
 
 signals:
     void log(const std::string& str);

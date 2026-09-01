@@ -22,11 +22,14 @@ public:
     ~QtNDSLocUtils();
 
     void loadRom(QString romPath);
+    void setTargetFolder(QString targetPath);
 
 signals:
     void requestLoadRom(const QString& romPath);
     void requestPrintFilesystem();
-    void requestExtractFiles(const QString& outFolder, const QStringList& files);
+    void requestExtractP2Files(const QString& outFolder, const QStringList& files);
+    void requestExtractZFiles(const QString& outFolder, const QStringList& files);
+    void requestExtractRawFiles(const QString& outFolder, const QStringList& files);
     void requestExportStrings(const QString& outFolder, const QStringList& files, uint8_t format);
 
 private slots:
@@ -78,7 +81,8 @@ private:
     void addFileActions(QMenu& menu, const TreeContext& ctx);
     void addCommonActions(QMenu& menu, const TreeContext& ctx);
 
-    void actionExtractRaw(const TreeContext& ctx);
+    enum EExtractType : uint8_t { Raw = 0, P2, Z };
+    void actionExtractFile(const TreeContext& ctx, EExtractType type);
 
     void beginTask();
     void updateUiState();

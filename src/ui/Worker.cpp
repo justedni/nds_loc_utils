@@ -107,10 +107,7 @@ void Worker::extractP2Files(const QString& outFolder, const QStringList& files)
 {
     for (const QString& file : files)
     {
-        const std::string filePath = file.toStdString();
-
-        auto* entry = m_fs->findEntryByName(filePath);
-        if (entry)
+        if (auto* entry = m_fs->findEntryByName(file.toStdString()))
         {
             auto* data = m_romData.data() + entry->start;
 
@@ -118,38 +115,73 @@ void Worker::extractP2Files(const QString& outFolder, const QStringList& files)
             {
                 auto p2file = ndsloc::P2File(data, entry->size);
 
-                auto& subfiles = p2file.getFileTable();
+                auto& subfiles = p2file.readAndGetFileTable();
                 for (auto& subfile : subfiles)
                 {
-                    ndsloc::LZSSFile file(subfile.inputPtr, subfile.fileSize);
-                    file.decompress();
-
                     auto outPath = QDir(outFolder).filePath(QString::fromStdString(subfile.getFilename()));
-                    file.saveToDisk(outPath.toStdString());
+
+                    if (subfile.isCompressed())
+                    {
+                        ndsloc::LZSSFile file(subfile.inputPtr, subfile.fileSize);
+                        file.decompress();
+                        file.saveToDisk(outPath.toStdString());
+                    }
+                    else
+                    {
+                        std::ofstream os(outPath.toStdString(), std::ofstream::binary);
+                        os.write((char*)subfile.inputPtr, subfile.fileSize);
+                    }
                 }
             }
             else
             {
-                auto fileInfo = QFileInfo(QString::fromStdString(filePath));
-                auto outPath = QDir(outFolder).filePath(fileInfo.fileName());
-                
-                auto suffix = fileInfo.suffix().toLower();
-                if (suffix == "z")
-                {
-                    ndsloc::LZSSFile file(data, entry->size);
-                    file.decompress();
-                    file.saveToDisk(outPath.toStdString());
-                }
-                else
-                {
-                    std::ofstream os(outPath.toStdString(), std::ofstream::binary);
-                    os.write((char*)data, entry->size);
-                }
+                assert(false);
             }
         }
     }
 
     emit taskFinished(true);
+}
+
+void Worker::extractZFiles(const QString& outFolder, const QStringList& files)
+{
+    for (const QString& file : files)
+    {
+        if (auto* entry = m_fs->findEntryByName(file.toStdString()))
+        {
+            auto fileInfo = QFileInfo(file);
+            auto outPath = QDir(outFolder).filePath(fileInfo.fileName());
+
+            auto suffix = fileInfo.suffix().toLower();
+            if (suffix == "z")
+            {
+                auto* data = m_romData.data() + entry->start;
+                ndsloc::LZSSFile file(data, entry->size);
+                file.decompress();
+                file.saveToDisk(outPath.toStdString());
+            }
+            else
+            {
+                assert(false);
+            }
+        }
+    }
+}
+
+void Worker::extractRawFiles(const QString& outFolder, const QStringList& files)
+{
+    for (const QString& file : files)
+    {
+        if (auto* entry = m_fs->findEntryByName(file.toStdString()))
+        {
+            auto outPath = QDir(outFolder).filePath(QFileInfo(file).fileName());
+
+            std::ofstream os(outPath.toStdString(), std::ofstream::binary);
+
+            auto* data = m_romData.data() + entry->start;
+            os.write((char*)data, entry->size);
+        }
+    }
 }
 
 void Worker::exportStrings(const QString& outFolder, const QStringList& files, uint8_t fmt)

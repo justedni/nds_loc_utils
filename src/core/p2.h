@@ -60,7 +60,7 @@ public:
     P2File(const std::string& filePath);
     P2File(const uint8_t* inputPtr, uint32_t inputSize);
 
-    const std::vector<P2SubFile>& getFileTable() { return m_subfiles; }
+    const std::vector<P2SubFile>& readAndGetFileTable();
 
     void setLanguage(cakp::Language language) { m_language = language; }
 

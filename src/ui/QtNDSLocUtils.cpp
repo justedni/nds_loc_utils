@@ -103,7 +103,9 @@ QtNDSLocUtils::QtNDSLocUtils(QWidget* parent)
 
     connect(this, &QtNDSLocUtils::requestLoadRom, m_worker, &Worker::loadRom);
     connect(this, &QtNDSLocUtils::requestPrintFilesystem, m_worker, &Worker::printFilesystem);
-    connect(this, &QtNDSLocUtils::requestExtractFiles, m_worker, &Worker::extractP2Files);
+    connect(this, &QtNDSLocUtils::requestExtractP2Files, m_worker, &Worker::extractP2Files);
+    connect(this, &QtNDSLocUtils::requestExtractZFiles, m_worker, &Worker::extractZFiles);
+    connect(this, &QtNDSLocUtils::requestExtractRawFiles, m_worker, &Worker::extractRawFiles);
     connect(this, &QtNDSLocUtils::requestExportStrings, m_worker, &Worker::exportStrings);
 
     connect(ui.treeFiles, &QTreeWidget::itemChanged, this, &QtNDSLocUtils::onTreeItemChanged);
@@ -113,7 +115,7 @@ QtNDSLocUtils::QtNDSLocUtils(QWidget* parent)
 
     m_workerThread.start();
 
-    ui.lineTargetFolder->setText(QDir::currentPath());
+    setTargetFolder(QDir::currentPath());
 
     updateUiState();
 }
@@ -169,6 +171,11 @@ void QtNDSLocUtils::loadRom(QString romPath)
 
     beginTask();
     emit requestLoadRom(romPath);
+}
+
+void QtNDSLocUtils::setTargetFolder(QString targetPath)
+{
+    ui.lineTargetFolder->setText(targetPath);
 }
 
 void QtNDSLocUtils::on_browseTargetFolder_clicked()
@@ -680,12 +687,17 @@ QtNDSLocUtils::TreeContext QtNDSLocUtils::buildTreeContext(QTreeWidgetItem* clic
             ctx.items << item;
     }
 
+
+    QStringList types;
+
     for (QTreeWidgetItem* item : ctx.items)
     {
         if (item->data(ColumnName, IsFileRole).toBool())
         {
             ctx.hasFiles = true;
             ctx.filePaths << item->data(ColumnName, PathRole).toString();
+
+            types.append(item->text(ColumnType));
         }
         else
         {
@@ -694,15 +706,13 @@ QtNDSLocUtils::TreeContext QtNDSLocUtils::buildTreeContext(QTreeWidgetItem* clic
         }
     }
 
-    QString suffix;
+    QString commonType = "";
     bool uniform = !ctx.filePaths.isEmpty();
-
-    for (const QString& path : ctx.filePaths)
+    for (auto& type : types)
     {
-        const QString s = QFileInfo(path).suffix().toLower();
-        if (suffix.isEmpty())
-            suffix = s;
-        else if (s != suffix)
+        if (commonType.isEmpty())
+            commonType = type;
+        else if (commonType != type)
         {
             uniform = false;
             break;
@@ -710,7 +720,7 @@ QtNDSLocUtils::TreeContext QtNDSLocUtils::buildTreeContext(QTreeWidgetItem* clic
     }
 
     if (uniform)
-        ctx.commonType = suffix;
+        ctx.commonType = commonType;
 
     return ctx;
 }
@@ -734,11 +744,27 @@ void QtNDSLocUtils::addFolderActions(QMenu& menu, const TreeContext& ctx)
 
 void QtNDSLocUtils::addFileActions(QMenu& menu, const TreeContext& ctx)
 {
-    // ---- Actions valid for any file ----
-    QAction* extract = menu.addAction(ctx.filePaths.size() > 1
-        ? tr("Extract %1 files...").arg(ctx.filePaths.size())
-        : tr("Extract raw file..."));
-    connect(extract, &QAction::triggered, this, [this, ctx]() { actionExtractRaw(ctx); });
+    int fileCount = ctx.filePaths.size();
+    auto getActionName = [&fileCount](const char* name, const char* type) -> QString
+    {
+        return (fileCount > 1)
+            ? tr("%1 %2 %3 files...").arg(name, QString::number(fileCount), type)
+            : tr("%1 %2 file...").arg(name, type);
+    };
+
+    if (ctx.commonType == QLatin1String("p2"))
+    {
+        QAction* extract = menu.addAction(getActionName("Extract and decompress", "P2"));
+        connect(extract, &QAction::triggered, this, [this, ctx]() { actionExtractFile(ctx, EExtractType::P2); });
+    }
+    else if (ctx.commonType == QLatin1String("z"))
+    {
+        QAction* decompress = menu.addAction(getActionName("Decompress", "Z"));
+        connect(decompress, &QAction::triggered, this, [this, ctx]() { actionExtractFile(ctx, EExtractType::Z); });
+    }
+
+    QAction* extractRaw = menu.addAction(getActionName("Extract", "raw"));
+    connect(extractRaw, &QAction::triggered, this, [this, ctx]() { actionExtractFile(ctx, EExtractType::Raw); });
 
     menu.addSeparator();
 }
@@ -771,7 +797,7 @@ void QtNDSLocUtils::addCommonActions(QMenu& menu, const TreeContext& ctx)
     });
 }
 
-void QtNDSLocUtils::actionExtractRaw(const TreeContext& ctx)
+void QtNDSLocUtils::actionExtractFile(const TreeContext& ctx, EExtractType type)
 {
     if (ctx.filePaths.isEmpty())
         return;
@@ -800,5 +826,18 @@ void QtNDSLocUtils::actionExtractRaw(const TreeContext& ctx)
 
     appendLog("Extracting " + std::to_string(ctx.filePaths.size()) + " file(s) to: " + outFolder.toStdString() + "\n");
 
-    emit requestExtractFiles(outFolder, ctx.filePaths);
+    switch (type)
+    {
+    case EExtractType::Raw:
+        emit requestExtractRawFiles(outFolder, ctx.filePaths);
+        break;
+    case EExtractType::P2:
+        emit requestExtractP2Files(outFolder, ctx.filePaths);
+        break;
+    case EExtractType::Z:
+        emit requestExtractZFiles(outFolder, ctx.filePaths);
+        break;
+    default:
+        assert(false);
+    }
 }
