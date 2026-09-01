@@ -31,6 +31,15 @@ namespace
 
     const QStringList kDefaultSelection = {
         QStringLiteral("/db/db_en.p2"),
+        QStringLiteral("/ev/EV_AL.p2"),
+        QStringLiteral("/ev/EV_AW.p2"),
+        QStringLiteral("/ev/EV_BB.p2"),
+        QStringLiteral("/ev/EV_DP.p2"),
+        QStringLiteral("/ev/EV_HE.p2"),
+        QStringLiteral("/ev/EV_NM.p2"),
+        QStringLiteral("/ev/EV_PP.p2"),
+        QStringLiteral("/ev/EV_S.p2"),
+        QStringLiteral("/ev/EV_TT.p2"),
         QStringLiteral("/mi/mi/10000"),
         QStringLiteral("/UI/cm/str/rpt_en.z"),
         QStringLiteral("/UI/cm/str/cfg_en.s.z"),
