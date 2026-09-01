@@ -17,6 +17,8 @@
 
 #include "Worker.h"
 
+#include "core/strings.h"
+
 namespace
 {
     constexpr int ColumnName = 0;
@@ -128,7 +130,8 @@ void QtNDSLocUtils::updateUiState()
     ui.buttonSelectNone->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
 
     ui.buttonPrintFilesystem->setEnabled(idle && m_bRomLoaded);
-    ui.buttonExportStrings->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
+    ui.buttonExportStringsToCsv->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
+    ui.buttonExportStringsToIni->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
 }
 
 void QtNDSLocUtils::beginTask()
@@ -175,7 +178,7 @@ void QtNDSLocUtils::on_buttonPrintFilesystem_clicked()
     emit requestPrintFilesystem();
 }
 
-void QtNDSLocUtils::on_buttonExportStrings_clicked()
+void QtNDSLocUtils::on_buttonExportStringsToCsv_clicked()
 {
     auto outPath = ui.lineTargetFolder->text();
     if (outPath.isEmpty())
@@ -186,7 +189,21 @@ void QtNDSLocUtils::on_buttonExportStrings_clicked()
         return;
 
     beginTask();
-    emit requestExportStrings(outPath, files);
+    emit requestExportStrings(outPath, files, ndsloc::ExportFormat::Csv);
+}
+
+void QtNDSLocUtils::on_buttonExportStringsToIni_clicked()
+{
+    auto outPath = ui.lineTargetFolder->text();
+    if (outPath.isEmpty())
+        return;
+
+    const QStringList files = selectedFiles();
+    if (files.isEmpty())
+        return;
+
+    beginTask();
+    emit requestExportStrings(outPath, files, ndsloc::ExportFormat::Ini);
 }
 
 void QtNDSLocUtils::on_buttonSelectAll_clicked()

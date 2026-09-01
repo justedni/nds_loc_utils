@@ -4,6 +4,8 @@
 
 namespace ndsloc {
 
+enum ExportFormat : uint8_t { Csv, Ini };
+
 struct String
 {
     String(uint32_t in_off, std::string&& in_text, uint32_t in_sectionOffset, std::string&& in_section)

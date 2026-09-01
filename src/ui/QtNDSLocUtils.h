@@ -27,13 +27,14 @@ signals:
     void requestLoadRom(const QString& romPath);
     void requestPrintFilesystem();
     void requestExtractFiles(const QString& outFolder, const QStringList& files);
-    void requestExportStrings(const QString& outFolder, const QStringList& files);
+    void requestExportStrings(const QString& outFolder, const QStringList& files, uint8_t format);
 
 private slots:
     void on_browseRom_clicked();
     void on_browseTargetFolder_clicked();
     void on_buttonPrintFilesystem_clicked();
-    void on_buttonExportStrings_clicked();
+    void on_buttonExportStringsToCsv_clicked();
+    void on_buttonExportStringsToIni_clicked();
     void on_buttonSelectAll_clicked();
     void on_buttonSelectNone_clicked();
 

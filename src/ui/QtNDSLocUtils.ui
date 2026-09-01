@@ -59,7 +59,7 @@
     <item>
      <widget class="QSplitter" name="splitterMain">
       <property name="orientation">
-       <enum>Qt::Horizontal</enum>
+       <enum>Qt::Orientation::Horizontal</enum>
       </property>
       <property name="childrenCollapsible">
        <bool>false</bool>
@@ -83,11 +83,11 @@
           <property name="alternatingRowColors">
            <bool>true</bool>
           </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::SelectionMode::ExtendedSelection</enum>
+          </property>
           <property name="uniformRowHeights">
            <bool>true</bool>
-          </property>
-          <property name="selectionMode">
-           <enum>QAbstractItemView::ExtendedSelection</enum>
           </property>
           <column>
            <property name="text">
@@ -125,7 +125,7 @@
           <item>
            <spacer name="spacerTreeButtons">
             <property name="orientation">
-             <enum>Qt::Horizontal</enum>
+             <enum>Qt::Orientation::Horizontal</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -169,7 +169,7 @@
            </widget>
           </item>
           <item>
-           <widget class="QPushButton" name="buttonExportStrings">
+           <widget class="QPushButton" name="buttonExportStringsToCsv">
             <property name="minimumSize">
              <size>
               <width>0</width>
@@ -177,14 +177,27 @@
              </size>
             </property>
             <property name="text">
-             <string>Export selected strings</string>
+             <string>Export strings to CSV</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonExportStringsToIni">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>32</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Export strings to INI</string>
             </property>
            </widget>
           </item>
           <item>
            <spacer name="spacerActions">
             <property name="orientation">
-             <enum>Qt::Horizontal</enum>
+             <enum>Qt::Orientation::Horizontal</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>

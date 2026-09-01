@@ -146,10 +146,15 @@ std::vector<U16String> exportDBStrings(const uint8_t* dataPtr, int inputSize, EF
 }
 
 
-void writeString(std::ofstream& os, const String& pair)
+void writeIniString(std::ofstream& os, int offset, const std::string& text)
 {
-    os << "0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << pair.offset << "=";
-    os << pair.text << "\n";
+    os << "0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << offset << "=";
+    os << text << "\n";
+}
+
+void writeIniString(std::ofstream& os, int offset, const std::u16string& text)
+{
+    writeIniString(os, offset, utf16ToUtf8(text));
 }
 
 std::vector<String> exportStringsFromBuffer(const uint8_t* rom, int totalSize, uint32_t sectionOffset, const std::string& sectionName, int addressStart, bool bRemoveForb)
@@ -250,61 +255,81 @@ static std::string csvEscape(const std::string& in)
     return out;
 }
 
-std::ofstream startCsvFile(const std::string& out_path)
+std::ofstream startFile(const std::string& out_path, ExportFormat format)
 {
     std::ofstream os(out_path, std::ios::binary);
-    os << "\xEF\xBB\xBF";
-    os << "file,subfile,subfileoffset,offset,text\n";
+
+    if (format == ExportFormat::Csv)
+    {
+        os << "\xEF\xBB\xBF";
+        os << "file,subfile,subfileoffset,offset,text\n";
+    }
+
     return std::move(os);
-}
-
-void writeStringsToCsv(std::ofstream& os, const std::string& filename, const std::vector<String>& strings)
-{
-    for (auto& pair : strings)
-    {
-        std::string text = pair.text;
-        utils::replace_in_string(text, "\n", "\\n");
-        utils::replace_in_string(text, "\r", "\\r");
-        strings::writeCsvLine(os, filename, pair.section, pair.offset, pair.sectionOffset, text);
-    }
-}
-
-void writeStringsToCsv(std::ofstream& os, const std::string& filename, const std::vector<U16String>& strings)
-{
-    for (auto& pair : strings)
-    {
-        std::u16string text = pair.text;
-        utils::replace_in_ustring(text, u"\n", u"\\n");
-        utils::replace_in_ustring(text, u"\r", u"\\r");
-        strings::writeCsvLine(os, filename, "", pair.offset, 0, text);
-    }
-}
-
-void writeCsvLine_common(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, int subfileOffset)
-{
-    os << filename;
-    os << ',' << subfilename;
-    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << subfileOffset;
-    os << ",0x" << offset;
 }
 
 void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, int subfileOffset, const std::string& text)
 {
-    writeCsvLine_common(os, filename, subfilename, offset, subfileOffset);
+    os << filename;
+    os << ',' << subfilename;
+    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << subfileOffset;
+    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(4) << offset;
     os << ',' << csvEscape(text);
     os << '\n';
 }
 
 void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, int subfileOffset, const std::u16string& text)
 {
-    writeCsvLine_common(os, filename, subfilename, offset, subfileOffset);
-    auto conv_str = utf16ToUtf8(text);
-    utils::replace_in_string(conv_str, "\n", "\\n");
-    utils::replace_in_string(conv_str, "\r", "\\r");
-
-    os << ',' << csvEscape(conv_str);
-    os << '\n';
+    writeCsvLine(os, filename, subfilename, offset, subfileOffset, utf16ToUtf8(text));
 }
+
+bool shouldIgnoreString(std::string str)
+{
+    if (str.empty()
+        || str.find("DELETED") != std::string::npos)
+        return true;
+
+    return false;
+}
+
+const std::string& getSection(const String& entry) { return entry.section; }
+uint32_t getSectionOffset(const String& entry) { return entry.sectionOffset; }
+
+const std::string& getSection(const U16String&) { static const std::string empty; return empty; }
+uint32_t getSectionOffset(const U16String&) { return 0; }
+
+std::string getText(const String& entry) { return entry.text; }
+std::string getText(const U16String& entry) { return utf16ToUtf8(entry.text); }
+
+template <typename T>
+void writeStringsImpl(ExportFormat format, std::ofstream& os, uint32_t fileOffset, const std::string& filename, const std::vector<T>& strings)
+{
+    for (const auto& entry : strings)
+    {
+        std::string text = getText(entry);
+        if (shouldIgnoreString(text))
+            continue;
+
+        utils::replace_in_string(text, "\n", "\\n");
+        utils::replace_in_string(text, "\r", "\\r");
+
+        if (format == ExportFormat::Csv)
+            strings::writeCsvLine(os, filename, getSection(entry), entry.offset, getSectionOffset(entry), text);
+        else
+            strings::writeIniString(os, fileOffset + entry.offset, text);
+    }
+}
+
+void writeStrings(ExportFormat format, std::ofstream& os, uint32_t fileOffset, const std::string& filename, const std::vector<String>& strings)
+{
+    writeStringsImpl(format, os, fileOffset, filename, strings);
+}
+ 
+void writeStrings(ExportFormat format, std::ofstream& os, uint32_t fileOffset, const std::string& filename, const std::vector<U16String>& strings)
+{
+    writeStringsImpl(format, os, fileOffset, filename, strings);
+}
+
 
 } // namespace strings
 } // namespace ndsloc

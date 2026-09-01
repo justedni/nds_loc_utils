@@ -152,7 +152,7 @@ void Worker::extractP2Files(const QString& outFolder, const QStringList& files)
     emit taskFinished(true);
 }
 
-void Worker::exportStrings(const QString& outFolder, const QStringList& files)
+void Worker::exportStrings(const QString& outFolder, const QStringList& files, uint8_t fmt)
 {
     using namespace ndsloc;
 
@@ -172,9 +172,12 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
 
     emit log("Exporting strings to: " + outFolder.toStdString() + "\n");
 
-    auto outPath = QDir(outFolder).filePath("strings.csv");
+    auto format = (ndsloc::ExportFormat)fmt;
 
-    std::ofstream os = strings::startCsvFile(outPath.toStdString());
+    QString filename = (format == ExportFormat::Csv) ? "strings.csv" : "strings.ini";
+
+    auto outPath = QDir(outFolder).filePath(filename);
+    std::ofstream os = strings::startFile(outPath.toStdString(), (ndsloc::ExportFormat)format);
 
     for (const QString& file : files)
     {
@@ -192,7 +195,7 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
                 P2File file(data, entry->size);
                 std::vector<String> out_strings;
                 file.extractStrings(out_strings);
-                strings::writeStringsToCsv(os, fileName.toStdString(), out_strings);
+                strings::writeStrings(format, os, entry->start, fileName.toStdString(), out_strings);
             }
             else if (entry->type == "z")
             {
@@ -208,7 +211,7 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
                     auto type = utils::getFileFormat(data, dataSize);
                     assert(type == EFileFormat::StringDB_Short);
                     auto u16strings = strings::exportDBStrings(data, dataSize, EFileFormat::StringDB_Short);
-                    strings::writeStringsToCsv(os, fileName.toStdString(), u16strings);
+                    strings::writeStrings(format, os, entry->start, fileName.toStdString(), u16strings);
                 }
                 else if (StringTableFile::looksValid(data, dataSize))
                 {
@@ -216,7 +219,7 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
                     StringTableFile table(data, dataSize);
                     const bool ok = table.extractStrings(wide);
 
-                    strings::writeStringsToCsv(os, fileName.toStdString(), wide);
+                    strings::writeStrings(format, os, entry->start, fileName.toStdString(), wide);
                 }
                 else
                 {
@@ -224,7 +227,7 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
                     if (type == EFileFormat::StringDB || type == EFileFormat::StringDB_Long)
                     {
                         auto u16strings = strings::exportDBStrings(data, dataSize, type);
-                        strings::writeStringsToCsv(os, fileName.toStdString(), u16strings);
+                        strings::writeStrings(format, os, entry->start, fileName.toStdString(), u16strings);
                     }
                     else
                     {
@@ -235,7 +238,7 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files)
                         //std::vector<String> out_strings;
                         //const bool ok = cakp.extractStrings(out_strings);
                         //assert(ok);
-                        //strings::writeStringsToCsv(os, fileName.toStdString(), out_strings);
+                        //strings::writeStrings(format, os, fileName.toStdString(), out_strings);
                     }
                 }
             }
