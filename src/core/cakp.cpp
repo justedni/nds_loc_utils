@@ -132,8 +132,7 @@ void CAKPFile::collectMessageRecord(uint32_t recordAt, uint32_t poolAt, uint32_t
 
     for (uint32_t slot = 0; slot < kLanguageCount; ++slot)
     {
-        //if (slot == m_language) // Uncomment to only select English
-        if (slot != cakp::LANG_JP)
+        if (slot == m_language)
         {
             uint32_t textRel = utils::readUInt32(m_buffer, recordAt + slot * 4);
 
@@ -171,9 +170,7 @@ bool CAKPFile::collectSection(uint32_t sectionAt, uint32_t sectionSize, std::vec
 
     const uint32_t poolAt = sectionAt + poolRel;
 
-    //const bool sectionLanguageMatches = (m_sectionLanguage >= 0) && (m_sectionLanguage == static_cast<int>(m_language));
-    // Uncomment to only extract English
-    const bool sectionLanguageMatches = (m_sectionLanguage >= 0);
+    const bool sectionLanguageMatches = (m_sectionLanguage >= 0) && (m_sectionLanguage == static_cast<int>(m_language));
     uint32_t languageBlockEnd = 0;
     bool inWantedLanguageBlock = sectionLanguageMatches;
 
@@ -225,7 +222,7 @@ bool CAKPFile::collectSection(uint32_t sectionAt, uint32_t sectionSize, std::vec
             if (readLanguageCondition(conditionAt, sectionEnd, conditionLanguage))
             {
                 languageBlockEnd = skipTarget;
-                inWantedLanguageBlock = true; // (conditionLanguage == m_language); // Uncomment when you only want English
+                inWantedLanguageBlock = (conditionLanguage == m_language);
             }
         }
 
