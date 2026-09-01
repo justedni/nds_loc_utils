@@ -35,6 +35,32 @@ P2File::P2File(const uint8_t* inputPtr, uint32_t inputSize)
 {
 }
 
+bool P2File::sizeTableLooksValid(uint32_t sizesAt) const
+{
+    const uint32_t fileCount = static_cast<uint32_t>(m_subfiles.size());
+
+    if (sizesAt + fileCount * 4 > m_inputSize)
+        return false;
+
+    for (uint32_t i = 0; i < fileCount; ++i)
+    {
+        const uint32_t offset = m_subfiles[i].fileOffset;
+        const uint32_t size = utils::readUInt24(m_inputPtr, sizesAt + i * 4);
+        const uint8_t flag = m_inputPtr[sizesAt + i * 4 + 3];
+
+        if (offset > m_inputSize || size > m_inputSize - offset)
+            return false;
+
+        if (size > m_subfiles[i].maxSize)
+            return false;
+
+        if ((flag & p2::kFlagCompressed) != 0 &&
+            m_inputPtr[offset] != p2::kLZ10 && m_inputPtr[offset] != p2::kLZ11)
+            return false;
+    }
+
+    return true;
+}
 
 bool P2File::readFileTable()
 {
@@ -70,58 +96,73 @@ bool P2File::readFileTable()
         currentPos += 2;
     }
 
-    if (fileType == p2::kTypeNamed) // P2 file with bigger header containing filesizes and filenames
+    for (int i = 0; i < fileCount; i++)
     {
-        for (int i = 0; i < fileCount; i++)
-        {
-            auto& fileDesc = m_subfiles[i];
+        auto& fileDesc = m_subfiles[i];
 
-            uint32_t val = utils::readUInt24(dataPtr, currentPos);
-            fileDesc.fileSize = val;
-            if (i + 1 < fileCount)
-            {
-                auto& nextFileDesc = m_subfiles[i + 1];
+        if (fileDesc.fileOffset > inputSize)
+            return false;
+
+        if (i + 1 < fileCount)
+        {
+            auto& nextFileDesc = m_subfiles[i + 1];
+            if (nextFileDesc.fileOffset > fileDesc.fileOffset)
                 fileDesc.maxSize = nextFileDesc.fileOffset - fileDesc.fileOffset;
-            }
             else
-            {
-                fileDesc.maxSize = inputSize - fileDesc.fileOffset;
-            }
-            fileDesc.someFlag = dataPtr[currentPos + 3]; // Don't know what this value is for
-            currentPos += 4;
+                fileDesc.maxSize = 0;
         }
-
-        for (int i = 0; i < fileCount; i++)
+        else
         {
-            auto& fileDesc = m_subfiles[i];
-            const char* name = static_cast<const char*>((char*)dataPtr + currentPos);
-            fileDesc.fileName = std::string(name, std::min(strlen(name), size_t(8)));
-            currentPos += 8;
+            fileDesc.maxSize = inputSize - fileDesc.fileOffset;
         }
     }
-    else if (fileType == 0x00) // needs to deduce the chunk sizes
+
+    currentPos = (currentPos + 3u) & ~3u;
+
+    const uint32_t sizesAt = sizeTableLooksValid(currentPos) ? currentPos : 0;
+
+    if (sizesAt != 0)
     {
         for (int i = 0; i < fileCount; i++)
         {
             auto& fileDesc = m_subfiles[i];
 
-            if (i + 1 < fileCount)
-            {
-                auto& nextFileDesc = m_subfiles[i + 1];
-                fileDesc.fileSize = nextFileDesc.fileOffset - fileDesc.fileOffset;
-            }
-            else
-            {
-                fileDesc.fileSize = inputSize - fileDesc.fileOffset;
-            }
-
-            fileDesc.maxSize = fileDesc.fileSize;
-            fileDesc.someFlag = 0x80;
+            fileDesc.fileSize = utils::readUInt24(dataPtr, sizesAt + i * 4);
+            fileDesc.someFlag = dataPtr[sizesAt + i * 4 + 3];
         }
+
+        currentPos = sizesAt + fileCount * 4;
     }
     else
     {
-        assert(false); // Unknown P2 type
+        // No usable size table: fall back to the sector span and sniff the
+        // payload for a codec marker instead of assuming compression.
+        for (int i = 0; i < fileCount; i++)
+        {
+            auto& fileDesc = m_subfiles[i];
+
+            fileDesc.fileSize = fileDesc.maxSize;
+
+            const uint8_t first = dataPtr[fileDesc.fileOffset];
+            fileDesc.someFlag = (first == p2::kLZ10 || first == p2::kLZ11)
+                ? p2::kFlagCompressed
+                : 0;
+        }
+
+        currentPos += fileCount * 4;
+    }
+
+    // --- name table: 8 bytes per entry, NUL-padded ---
+    if (fileType == p2::kTypeNamed && currentPos + fileCount * p2::kNameLength <= inputSize)
+    {
+        for (int i = 0; i < fileCount; i++)
+        {
+            auto& fileDesc = m_subfiles[i];
+
+            const char* name = reinterpret_cast<const char*>(dataPtr + currentPos);
+            fileDesc.fileName = std::string(name, strnlen(name, p2::kNameLength));
+            currentPos += p2::kNameLength;
+        }
     }
 
     for (int i = 0; i < fileCount; i++)
@@ -136,14 +177,18 @@ void P2File::saveToDisk(const std::string& outPath)
     utils::saveBinaryFile(m_inputBuffer, outPath);
 }
 
-void appendStrings(const std::vector<String>& strings, std::vector<String>& out)
+void appendStrings(const std::vector<String>& strings, uint32_t sectionOffset, std::vector<String>& out)
 {
     for (auto& str : strings)
     {
         if (str.text == "\x01")
             continue;
 
-        out.push_back(std::move(str));
+        String copy = str;
+        // Temp: adding the file offset (useful for .ini)
+        copy.offset += sectionOffset;
+
+        out.push_back(std::move(copy));
     }
 }
 
@@ -170,7 +215,7 @@ bool P2File::extractPayload(const P2SubFile& subfile, const uint8_t* payload, ui
         cakp.setLanguage(m_language);
         const bool ok = cakp.extractStrings(strings);
 
-        appendStrings(strings, out);
+        appendStrings(strings, payloadOffset, out);
         return ok;
     }
 
@@ -185,7 +230,7 @@ bool P2File::extractPayload(const P2SubFile& subfile, const uint8_t* payload, ui
 
         std::vector<String> nestedOut;
         const bool ok = nested.extractStrings(nestedOut);
-        appendStrings(nestedOut, out);
+        appendStrings(nestedOut, payloadOffset, out);
         return ok;
     }
 
@@ -201,7 +246,7 @@ bool P2File::extractPayload(const P2SubFile& subfile, const uint8_t* payload, ui
     CAKPFile section(payload, payloadSize, payloadOffset, subfile.getFilename());
     section.setLanguage(m_language);
     section.extractSectionStrings(strings);
-    appendStrings(strings, out);
+    appendStrings(strings, payloadOffset, out);
     return true;
 }
 
@@ -254,6 +299,13 @@ bool P2File::extractStrings(std::vector<String>& out)
         if (!extractSubFile(subfile, 0, out))
             ok = false;
     }
+
+    std::sort(out.begin(), out.end(), [](auto& a, auto& b)
+    {
+        if (a.sectionOffset != b.sectionOffset)
+            return a.sectionOffset < b.sectionOffset;
+        return a.offset < b.offset;
+    });
 
     return ok;
 }

@@ -68,6 +68,7 @@ public:
 
     void saveToDisk(const std::string& outPath);
 private:
+    bool sizeTableLooksValid(uint32_t sizesAt) const;
     bool readFileTable();
 
     bool extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vector<String>& out);
