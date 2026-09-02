@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <assert.h>
 
 #include "p2.h"
 #include "cakp.h"
@@ -31,49 +32,19 @@ void saveBinaryFile(const std::vector<uint8_t>& data, const std::string& filenam
 
 ndsloc::EFileFormat getFileFormat(const void* data, std::size_t size)
 {
-    static constexpr char kDB[] = { 0x64, 0, 0, 0 };
-    static constexpr char kDB_Short[] = { 0x08, 0, 0, 0 };
-    static constexpr char kDB_Long[] = { 0x78, 0, 0, 0 };
-
     using namespace ndsloc;
 
     if (!data || size == 0)
         return EFileFormat::Empty;
 
-    if (data && size >= 4)
-    {
-        uint8_t firstChar = reinterpret_cast<const uint8_t*>(data)[0];
+    const uint8_t* dataPtr = reinterpret_cast<const uint8_t*>(data);
+    const uint32_t dataSize = static_cast<uint32_t>(size);
 
-        if (p2::isP2File((const uint8_t*)data))
-        {
-            return EFileFormat::P2;
-        }
-        else if (cakp::isCAKP((const uint8_t*)data))
-        {
-            return EFileFormat::CAKP;
-        }
-        else if (std::memcmp(data, kDB, sizeof(kDB)) == 0)
-        {
-            return EFileFormat::StringDB;
-        }
-        else if (std::memcmp(data, kDB_Short, sizeof(kDB_Short)) == 0)
-        {
-            return EFileFormat::StringDB_Short;
-        }
-        else if (std::memcmp(data, kDB_Long, sizeof(kDB_Long)) == 0
-            || firstChar == 0x68)
-        {
-            return EFileFormat::StringDB_Long;
-        }
-        else
-        {
-            if (firstChar == 0xE6 || firstChar == 0xEC
-                || firstChar == 0x2A || firstChar == 0x30)
-            {
-                return EFileFormat::TODO;
-            }
-        }
-    }
+    if (p2::isP2File(dataPtr))
+        return EFileFormat::P2;
+
+    if (cakp::isCAKP(dataPtr))
+        return EFileFormat::CAKP;
 
     return EFileFormat::Unknown;
 }
@@ -86,12 +57,6 @@ std::string getExtName(ndsloc::EFileFormat type)
     case EFileFormat::Empty: return "Empty";
     case EFileFormat::P2: return "P2";
     case EFileFormat::CAKP: return "CAKP";
-    case EFileFormat::StringDB:
-    case EFileFormat::StringDB_Short:
-    case EFileFormat::StringDB_Long:
-        return "StringDB";
-    case EFileFormat::TODO:
-        return "TODO";
     default:
         return "";
     }

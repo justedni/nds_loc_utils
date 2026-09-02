@@ -11,10 +11,6 @@ enum EFileFormat : uint8_t
 	Empty,
 	P2,
 	CAKP,
-	StringDB,
-	StringDB_Short,
-	StringDB_Long,
-	TODO
 };
 
 }
