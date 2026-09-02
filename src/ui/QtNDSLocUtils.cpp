@@ -17,6 +17,7 @@
 
 #include "Worker.h"
 
+#include "core/lang.h"
 #include "core/strings.h"
 
 namespace
@@ -28,34 +29,6 @@ namespace
     constexpr int PathRole   = Qt::UserRole + 1;
     constexpr int SizeRole   = Qt::UserRole + 2;
     constexpr int IsFileRole = Qt::UserRole + 3;
-
-    const QStringList kDefaultSelection = {
-        QStringLiteral("/db/db_en.p2"),
-        QStringLiteral("/ev/EV_AL.p2"),
-        QStringLiteral("/ev/EV_AW.p2"),
-        QStringLiteral("/ev/EV_BB.p2"),
-        QStringLiteral("/ev/EV_DP.p2"),
-        QStringLiteral("/ev/EV_HE.p2"),
-        QStringLiteral("/ev/EV_NM.p2"),
-        QStringLiteral("/ev/EV_PP.p2"),
-        QStringLiteral("/ev/EV_S.p2"),
-        QStringLiteral("/ev/EV_TT.p2"),
-        QStringLiteral("/mi/mi/10000"),
-        QStringLiteral("/UI/cm/str/rpt_en.z"),
-        QStringLiteral("/UI/cm/str/cfg_en.s.z"),
-        QStringLiteral("/UI/cm/str/enm_en.s.z"),
-        QStringLiteral("/UI/cm/str/enm_en.z"),
-        QStringLiteral("/UI/cm/str/panel_en.s.z"),
-        QStringLiteral("/UI/cm/str/root_en.s.z"),
-        QStringLiteral("/UI/cm/str/rpt_en.s.z"),
-        QStringLiteral("/UI/cm/str/rpt_en.z"),
-        QStringLiteral("/UI/cm/str/sav_en.s.z"),
-        QStringLiteral("/UI/cm/str/select_en.s.z"),
-        QStringLiteral("/UI/cm/str/status_en.s.z"),
-        QStringLiteral("/UI/cm/str/ttl_en.s.z"),
-        QStringLiteral("/UI/cm/str/world_id_en.s.z"),
-        //QStringLiteral("*.p2"),
-    };
 
     void setExpandedRecursive(QTreeWidgetItem* item, bool expanded)
     {
@@ -92,6 +65,7 @@ QtNDSLocUtils::QtNDSLocUtils(QWidget* parent)
     ui.treeFiles->setColumnWidth(ColumnSize, 80);
 
     qRegisterMetaType<NdsFileEntryList>("NdsFileEntryList");
+    qRegisterMetaType<NdsExportResult>("NdsExportResult");
 
     m_worker = new Worker();
     m_worker->moveToThread(&m_workerThread);
@@ -100,13 +74,23 @@ QtNDSLocUtils::QtNDSLocUtils(QWidget* parent)
     connect(m_worker, &Worker::romLoaded, this, &QtNDSLocUtils::onRomLoaded);
     connect(m_worker, &Worker::filesystemListed,  this, &QtNDSLocUtils::onFilesystemListed);
     connect(m_worker, &Worker::taskFinished, this, &QtNDSLocUtils::onTaskFinished);
+    connect(m_worker, &Worker::exportFinished, this, &QtNDSLocUtils::onExportFinished);
 
     connect(this, &QtNDSLocUtils::requestLoadRom, m_worker, &Worker::loadRom);
-    connect(this, &QtNDSLocUtils::requestPrintFilesystem, m_worker, &Worker::printFilesystem);
     connect(this, &QtNDSLocUtils::requestExtractP2Files, m_worker, &Worker::extractP2Files);
     connect(this, &QtNDSLocUtils::requestExtractZFiles, m_worker, &Worker::extractZFiles);
     connect(this, &QtNDSLocUtils::requestExtractRawFiles, m_worker, &Worker::extractRawFiles);
     connect(this, &QtNDSLocUtils::requestExportStrings, m_worker, &Worker::exportStrings);
+
+    ui.comboLanguage->addItem("All", 0);
+
+    for (int i = 0; i < ndsloc::Language::LANG_COUNT; i++)
+    {
+        auto langName = ndsloc::getLanguageName(static_cast<ndsloc::Language>(i));
+        ui.comboLanguage->addItem(QString::fromStdString(langName), i + 1);
+    }
+
+    ui.comboLanguage->setCurrentIndex(ndsloc::Language::LANG_EN + 1);
 
     connect(ui.treeFiles, &QTreeWidget::itemChanged, this, &QtNDSLocUtils::onTreeItemChanged);
 
@@ -140,7 +124,7 @@ void QtNDSLocUtils::updateUiState()
     ui.buttonSelectAll->setEnabled(idle && m_bRomLoaded);
     ui.buttonSelectNone->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
 
-    ui.buttonPrintFilesystem->setEnabled(idle && m_bRomLoaded);
+    ui.comboLanguage->setEnabled(idle && m_bRomLoaded);
     ui.buttonExportStringsToCsv->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
     ui.buttonExportStringsToIni->setEnabled(idle && m_bRomLoaded && m_selectedCount > 0);
 }
@@ -188,12 +172,6 @@ void QtNDSLocUtils::on_browseTargetFolder_clicked()
     updateUiState();
 }
 
-void QtNDSLocUtils::on_buttonPrintFilesystem_clicked()
-{
-    beginTask();
-    emit requestPrintFilesystem();
-}
-
 void QtNDSLocUtils::on_buttonExportStringsToCsv_clicked()
 {
     auto outPath = ui.lineTargetFolder->text();
@@ -205,7 +183,7 @@ void QtNDSLocUtils::on_buttonExportStringsToCsv_clicked()
         return;
 
     beginTask();
-    emit requestExportStrings(outPath, files, ndsloc::ExportFormat::Csv);
+    emit requestExportStrings(outPath, files, ndsloc::ExportFormat::Csv, selectedLanguage());
 }
 
 void QtNDSLocUtils::on_buttonExportStringsToIni_clicked()
@@ -219,7 +197,13 @@ void QtNDSLocUtils::on_buttonExportStringsToIni_clicked()
         return;
 
     beginTask();
-    emit requestExportStrings(outPath, files, ndsloc::ExportFormat::Ini);
+    emit requestExportStrings(outPath, files, ndsloc::ExportFormat::Ini, selectedLanguage());
+}
+
+int8_t QtNDSLocUtils::selectedLanguage() const
+{
+    const QVariant data = ui.comboLanguage->currentData();
+    return data.isValid() ? (data.toInt() - 1) : -1;
 }
 
 void QtNDSLocUtils::on_buttonSelectAll_clicked()
@@ -237,6 +221,11 @@ void QtNDSLocUtils::appendLog(const std::string& text)
     ui.textEditLog->moveCursor(QTextCursor::End);
     ui.textEditLog->insertPlainText(QString::fromStdString(text));
     ui.textEditLog->moveCursor(QTextCursor::End);
+}
+
+void QtNDSLocUtils::appendLogLine(const QString& text)
+{
+    appendLog(text.toStdString() + "\n");
 }
 
 void QtNDSLocUtils::onRomLoaded(bool success)
@@ -270,6 +259,37 @@ void QtNDSLocUtils::onTaskFinished(bool success)
 
     if (success)
         appendLog("~~ finished! ~~\n");
+}
+
+void QtNDSLocUtils::onExportFinished(const NdsExportResult& result)
+{
+    m_bIsBusy = false;
+    updateUiState();
+
+    if (!result.success)
+    {
+        appendLogLine(QStringLiteral("~~ export failed ~~"));
+        return;
+    }
+
+    if (result.files.isEmpty())
+    {
+        appendLogLine(QStringLiteral("~~ export finished: no strings found ~~"));
+        return;
+    }
+
+    int widest = 0;
+    for (const NdsExportedFile& file : result.files)
+    {
+        widest = qMax(widest, file.path.size());
+    }
+
+    appendLogLine(QStringLiteral("~~ exported %1 file(s), %2 string(s) ~~").arg(result.files.size()).arg(result.totalStrings()));
+
+    for (const NdsExportedFile& file : result.files)
+    {
+        appendLogLine(QStringLiteral("  %1  %2").arg(file.path.leftJustified(widest, ' ')).arg(file.stringCount, 6));
+    }
 }
 
 void QtNDSLocUtils::clearFileTree()
@@ -575,47 +595,9 @@ void QtNDSLocUtils::expandAncestors(QTreeWidgetItem* item)
 
 void QtNDSLocUtils::applyDefaultSelection()
 {
-    if (kDefaultSelection.isEmpty() || m_fileItems.isEmpty())
-        return;
-
-    m_updatingTree = true;
-    ui.treeFiles->setUpdatesEnabled(false);
-
-    QTreeWidgetItem* firstMatch = nullptr;
-    int ticked = 0;
-
-    for (const QString& pattern : kDefaultSelection)
+    for (auto* item : m_fileItems)
     {
-        const QList<QTreeWidgetItem*> matches = matchPattern(pattern);
-
-        if (matches.isEmpty())
-        {
-            appendLog("Default selection: no match for \"" + pattern.toStdString() + "\"\n");
-            continue;
-        }
-
-        for (QTreeWidgetItem* item : matches)
-        {
-            if (item->checkState(ColumnName) == Qt::Checked)
-                continue;
-
-            item->setCheckState(ColumnName, Qt::Checked);
-            expandAncestors(item);
-            ++ticked;
-
-            if (firstMatch == nullptr)
-                firstMatch = item;
-        }
-    }
-
-    recomputeFolderStates(ui.treeFiles->invisibleRootItem());
-
-    ui.treeFiles->setUpdatesEnabled(true);
-    m_updatingTree = false;
-
-    if (ticked > 0 && firstMatch != nullptr)
-    {
-        ui.treeFiles->scrollToItem(firstMatch, QAbstractItemView::PositionAtCenter);
+        item->setCheckState(ColumnName, Qt::Checked);
     }
 }
 

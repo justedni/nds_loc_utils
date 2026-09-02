@@ -3,9 +3,9 @@
 #include "QtNDSLocUtils.h"
 
 #include "core/nds.h"
+#include "core/lang.h"
 #include "core/utils.h"
 #include "core/p2.h"
-#include "core/cakp.h"
 #include "core/strings.h"
 #include "core/stringtable.h"
 #include "core/lzss.h"
@@ -184,7 +184,7 @@ void Worker::extractRawFiles(const QString& outFolder, const QStringList& files)
     }
 }
 
-void Worker::exportStrings(const QString& outFolder, const QStringList& files, uint8_t fmt)
+void Worker::exportStrings(const QString& outFolder, const QStringList& files, uint8_t fmt, uint8_t language)
 {
     using namespace ndsloc;
 
@@ -206,10 +206,29 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files, u
 
     auto format = (ndsloc::ExportFormat)fmt;
 
-    QString filename = (format == ExportFormat::Csv) ? "strings.csv" : "strings.ini";
+    std::map<uint8_t, std::ofstream> streams;
 
-    auto outPath = QDir(outFolder).filePath(filename);
-    std::ofstream os = strings::startFile(outPath.toStdString(), (ndsloc::ExportFormat)format);
+    auto filePathFromLang = [&](auto lng)
+    {
+        auto filename = getLanguageFileName(static_cast<Language>(lng));
+        return QDir(outFolder).filePath(QString::fromStdString(filename));
+    };
+
+    if (language == -1)
+    {
+        for (int i = 0; i < Language::LANG_COUNT; i++)
+        {
+            auto outPathNoExt = filePathFromLang(i);
+            streams[i] = std::move(strings::startFile(outPathNoExt.toStdString(), format));
+        }
+    }
+    else
+    {
+        auto outPathNoExt = filePathFromLang(language);
+        streams[language] = std::move(strings::startFile(outPathNoExt.toStdString(), format));
+    }
+
+    NdsExportResult result;
 
     for (const QString& file : files)
     {
@@ -222,55 +241,51 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files, u
             auto fileInfo = QFileInfo(QString::fromStdString(filePath));
             auto fileName = fileInfo.baseName();
 
+            auto filenameInCsv = entry->filename; // fileName.toStdString();
+
             if (entry->type == "p2")
             {
-                P2File file(data, entry->size);
-                std::vector<String> out_strings;
-                file.extractStrings(out_strings);
-                strings::writeStrings(format, os, entry->start, fileName.toStdString(), out_strings);
+                P2File p2(data, entry->size);
+
+                for (auto& os : streams)
+                {
+                    auto lang = static_cast<Language>(os.first);
+                    if (shouldIgnoreFile(entry->filename, lang))
+                        continue;
+
+                    std::vector<String> out_strings;
+                    p2.setLanguage(lang);
+                    p2.extractStrings(out_strings);
+                    strings::writeStrings(format, os.second, entry->start, filenameInCsv, out_strings);
+
+                    if (!out_strings.empty())
+                    {
+                        NdsExportedFile f;
+                        f.path = file;
+                        f.stringCount = out_strings.size();
+                        result.files.append(std::move(f));
+                    }
+                }
             }
             else if (entry->type == "z")
             {
                 LZSSFile lzss(data, entry->size);
                 lzss.decompress();
 
-                const auto decompressed = lzss.getConvertedData();
-                auto* data = decompressed.data();
-                auto dataSize = static_cast<uint32_t>(decompressed.size());
+                for (auto& os : streams)
+                {
+                    auto lang = static_cast<Language>(os.first);
+                    if (shouldIgnoreFile(entry->filename, lang))
+                        continue;
 
-                if (fileInfo.fileName().endsWith(".s.z")) // Compressed S file
-                {
-                    auto type = utils::getFileFormat(data, dataSize);
-                    assert(type == EFileFormat::StringDB_Short);
-                    auto u16strings = strings::exportDBStrings(data, dataSize, EFileFormat::StringDB_Short);
-                    strings::writeStrings(format, os, entry->start, fileName.toStdString(), u16strings);
-                }
-                else if (StringTableFile::looksValid(data, dataSize))
-                {
-                    std::vector<U16String> wide;
-                    StringTableFile table(data, dataSize);
-                    const bool ok = table.extractStrings(wide);
+                    uint32_t count = StringTableFile::exportStrings(os.second, lzss.getConvertedData(), format, filenameInCsv, fileInfo.suffix().toStdString(), entry->start);
 
-                    strings::writeStrings(format, os, entry->start, fileName.toStdString(), wide);
-                }
-                else
-                {
-                    auto type = utils::getFileFormat(data, dataSize);
-                    if (type == EFileFormat::StringDB || type == EFileFormat::StringDB_Long)
+                    if (count > 0)
                     {
-                        auto u16strings = strings::exportDBStrings(data, dataSize, type);
-                        strings::writeStrings(format, os, entry->start, fileName.toStdString(), u16strings);
-                    }
-                    else
-                    {
-                        assert(false);
-
-                        //CAKPFile cakp(data, dataSize, 0, "");
-                        ////cakp.setLanguage(m_language);
-                        //std::vector<String> out_strings;
-                        //const bool ok = cakp.extractStrings(out_strings);
-                        //assert(ok);
-                        //strings::writeStrings(format, os, fileName.toStdString(), out_strings);
+                        NdsExportedFile f;
+                        f.path = file;
+                        f.stringCount = count;
+                        result.files.append(std::move(f));
                     }
                 }
             }
@@ -281,7 +296,8 @@ void Worker::exportStrings(const QString& outFolder, const QStringList& files, u
         }
     }
 
-    emit taskFinished(true);
+    result.success = true;
+    emit exportFinished(result);
 }
 
 void Worker::logCallback(const std::string& str)

@@ -3,6 +3,7 @@
 #include <QObject>
 
 #include "FileEntry.h"
+#include "ExportResult.h"
 
 namespace NDS {
 class NDSFileSystem;
@@ -21,13 +22,14 @@ public slots:
     void printFilesystem();
     void extractP2Files(const QString& outFolder, const QStringList& files);
     void extractZFiles(const QString& outFolder, const QStringList& files);
-    void exportStrings(const QString& outFolder, const QStringList& files, uint8_t format);
+    void exportStrings(const QString& outFolder, const QStringList& files, uint8_t format, uint8_t language);
     void extractRawFiles(const QString& outFolder, const QStringList& files);
 
 signals:
     void log(const std::string& str);
     void romLoaded(bool success);
     void filesystemListed(const NdsFileEntryList& entries);
+    void exportFinished(const NdsExportResult& result);
     void taskFinished(bool success);
 
 private:

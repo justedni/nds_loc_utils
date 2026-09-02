@@ -7,6 +7,7 @@
 #include "ui_QtNDSLocUtils.h"
 
 #include "FileEntry.h"
+#include "ExportResult.h"
 
 #include <string>
 
@@ -26,16 +27,14 @@ public:
 
 signals:
     void requestLoadRom(const QString& romPath);
-    void requestPrintFilesystem();
     void requestExtractP2Files(const QString& outFolder, const QStringList& files);
     void requestExtractZFiles(const QString& outFolder, const QStringList& files);
     void requestExtractRawFiles(const QString& outFolder, const QStringList& files);
-    void requestExportStrings(const QString& outFolder, const QStringList& files, uint8_t format);
+    void requestExportStrings(const QString& outFolder, const QStringList& files, uint8_t format, uint8_t language);
 
 private slots:
     void on_browseRom_clicked();
     void on_browseTargetFolder_clicked();
-    void on_buttonPrintFilesystem_clicked();
     void on_buttonExportStringsToCsv_clicked();
     void on_buttonExportStringsToIni_clicked();
     void on_buttonSelectAll_clicked();
@@ -54,9 +53,11 @@ private:
     };
 
     void appendLog(const std::string& text);
+    void appendLogLine(const QString& text);
     void onRomLoaded(bool success);
     void onFilesystemListed(const NdsFileEntryList& entries);
     void onTaskFinished(bool success);
+    void onExportFinished(const NdsExportResult& result);
 
     void clearFileTree();
     void populateFileTree(const NdsFileEntryList& entries);
@@ -83,6 +84,8 @@ private:
 
     enum EExtractType : uint8_t { Raw = 0, P2, Z };
     void actionExtractFile(const TreeContext& ctx, EExtractType type);
+
+    int8_t selectedLanguage() const;
 
     void beginTask();
     void updateUiState();

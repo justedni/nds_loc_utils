@@ -65,6 +65,12 @@
        <bool>false</bool>
       </property>
       <widget class="QWidget" name="panelFiles" native="true">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>2</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <layout class="QVBoxLayout" name="layoutFiles">
         <property name="leftMargin">
          <number>0</number>
@@ -156,15 +162,32 @@
         <item>
          <layout class="QHBoxLayout" name="layoutActions">
           <item>
-           <widget class="QPushButton" name="buttonPrintFilesystem">
-            <property name="minimumSize">
+           <spacer name="spacerActions">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
              <size>
-              <width>0</width>
-              <height>32</height>
+              <width>40</width>
+              <height>20</height>
              </size>
             </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelLanguage">
             <property name="text">
-             <string>Print filesystem</string>
+             <string>Lang:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="comboLanguage">
+            <property name="minimumSize">
+             <size>
+              <width>50</width>
+              <height>32</height>
+             </size>
             </property>
            </widget>
           </item>
@@ -193,19 +216,6 @@
              <string>Export strings to INI</string>
             </property>
            </widget>
-          </item>
-          <item>
-           <spacer name="spacerActions">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
           </item>
          </layout>
         </item>
