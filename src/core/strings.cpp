@@ -118,6 +118,230 @@ void writeStrings(ExportFormat format, std::ofstream& os, uint32_t fileOffset, c
     writeStringsImpl(format, os, fileOffset, filename, strings);
 }
 
+void consumeBom(std::istream& is)
+{
+    if (is.peek() != 0xEF)
+        return;
+
+    char bom[3] = {};
+    const std::streampos start = is.tellg();
+    if (is.read(bom, 3) && bom[0] == '\xEF' && bom[1] == '\xBB' && bom[2] == '\xBF')
+        return;
+
+    is.clear();
+    is.seekg(start);
+}
+
+bool readCsvRecord(std::istream& is, std::vector<std::string>& fields)
+{
+    fields.clear();
+
+    std::string field;
+    bool inQuotes = false;
+    bool quotedField = false;
+    bool gotAnything = false;
+
+    char c = 0;
+    while (is.get(c))
+    {
+        gotAnything = true;
+
+        if (inQuotes)
+        {
+            if (c == '"')
+            {
+                if (is.peek() == '"')
+                {
+                    is.get(c);
+                    field += '"';
+                }
+                else
+                {
+                    inQuotes = false;
+                }
+            }
+            else
+            {
+                field += c;
+            }
+            continue;
+        }
+
+        if (c == '"' && field.empty() && !quotedField)
+        {
+            inQuotes = true;
+            quotedField = true;
+        }
+        else if (c == ',')
+        {
+            fields.push_back(field);
+            field.clear();
+            quotedField = false;
+        }
+        else if (c == '\r')
+        {
+            // part of a CRLF line ending, ignore
+        }
+        else if (c == '\n')
+        {
+            fields.push_back(field);
+            return true;
+        }
+        else
+        {
+            field += c;
+        }
+    }
+
+    if (!gotAnything)
+        return false;
+
+    fields.push_back(field);
+    return true;
+}
+
+std::string trim(const std::string& s)
+{
+    const auto first = s.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return {};
+    const auto last = s.find_last_not_of(" \t");
+    return s.substr(first, last - first + 1);
+}
+
+int parseHex(const std::string& value, const char* columnName, size_t lineNumber)
+{
+    std::string s = trim(value);
+    if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+        s.erase(0, 2);
+
+    assert(!s.empty());
+
+    size_t consumed = 0;
+    const unsigned long parsed = std::stoul(s, &consumed, 16);
+    assert(consumed == s.size());
+    return static_cast<int>(parsed);
+}
+
+std::string unescapeText(const std::string& text)
+{
+    std::string out;
+    out.reserve(text.size());
+
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == '\\' && i + 1 < text.size())
+        {
+            const char next = text[i + 1];
+            if (next == 'n') { out += '\n'; ++i; continue; }
+            if (next == 'r') { out += '\r'; ++i; continue; }
+        }
+        out += text[i];
+    }
+
+    return out;
+}
+
+std::vector<CsvNdsFile> readCsvFile(const std::string& inPath)
+{
+    std::ifstream is(inPath, std::ios::binary);
+    if (!is)
+    {
+        assert(false);
+        return {};
+    }
+
+    consumeBom(is);
+
+    std::vector<CsvNdsFile> files;
+    int currentFileId = -1;
+
+    std::vector<std::string> fields;
+    size_t lineNumber = 0;
+
+    while (readCsvRecord(is, fields))
+    {
+        ++lineNumber;
+
+        if (lineNumber == 1) // header
+            continue;
+
+        if (fields.size() == 1 && fields[0].empty()) // blank line
+            continue;
+
+        if (fields.size() < 5)
+        {
+            assert(false); // Invalid line (not enough columns)
+            continue;
+        }
+
+        const auto& filename = fields[0];
+        CsvNdsFile* currentFile = nullptr;
+
+        if (currentFileId != -1)
+        {
+            assert(currentFileId < files.size());
+            auto& file = files[currentFileId];
+            if (filename == file.filename)
+            {
+                currentFile = &file;
+            }
+            else
+            {
+                currentFileId = -1;
+            }
+        }
+
+        if (!currentFile)
+        {
+            auto found = std::find_if(files.begin(), files.end(), [filename](const auto& e) { return e.filename == filename; });
+            if (found != files.end())
+            {
+                currentFile = &(*found);
+                currentFileId = std::distance(files.begin(), found);
+            }
+            else
+            {
+                CsvNdsFile newFile;
+                newFile.filename = filename;
+                files.push_back(std::move(newFile));
+                currentFile = &files.back();
+                currentFileId = files.size() - 1;
+            }
+        }
+
+        assert(currentFile);
+
+        CsvLine entry;
+        entry.offset = parseHex(fields[3], "offset", lineNumber);
+        entry.text = unescapeText(fields[4]);
+
+        std::string subfilename = fields[1];
+        if (!subfilename.empty())
+        {
+            auto foundSub = std::find_if(currentFile->subfiles.begin(), currentFile->subfiles.end(), [subfilename](const auto& e) { return e.filename == subfilename; });
+            if (foundSub != currentFile->subfiles.end())
+            {
+                foundSub->lines.push_back(std::move(entry));
+            }
+            else
+            {
+                CsvNdsSubfile newSubFile;
+                newSubFile.filename = subfilename;
+                newSubFile.offset = parseHex(fields[2], "subfileoffset", lineNumber);
+                newSubFile.lines.push_back(std::move(entry));
+                currentFile->subfiles.push_back(std::move(newSubFile));
+            }
+        }
+        else
+        {
+            currentFile->lines.push_back(std::move(entry));
+        }
+    }
+
+    return files;
+}
+
 
 } // namespace strings
 } // namespace ndsloc

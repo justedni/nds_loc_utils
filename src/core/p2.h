@@ -7,6 +7,10 @@
 
 namespace ndsloc {
 
+namespace strings {
+struct CsvNdsFile;
+}
+
 enum Language : uint8_t;
 
 namespace p2 {
@@ -36,7 +40,7 @@ struct P2SubFile
     uint16_t maxSize = 0;
     uint8_t someFlag = 0;
 
-    const uint8_t* inputPtr = nullptr;
+    uint8_t* inputPtr = nullptr;
 
     std::string getFilename() const
     {
@@ -56,7 +60,7 @@ class P2File
 {
 public:
     P2File(const std::string& filePath);
-    P2File(const uint8_t* inputPtr, uint32_t inputSize);
+    P2File(uint8_t* inputPtr, uint32_t inputSize);
 
     const std::vector<P2SubFile>& readAndGetFileTable();
 
@@ -65,15 +69,20 @@ public:
     bool extractStrings(std::vector<String>& out);
 
     void saveToDisk(const std::string& outPath);
+
+    void applyChanges(const strings::CsvNdsFile& patchData);
 private:
     bool sizeTableLooksValid(uint32_t sizesAt) const;
     bool readFileTable();
 
     bool extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vector<String>& out);
-    bool extractPayload(const P2SubFile& subfile, const uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out);
+    bool extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out);
+
+    void updateSubfileBuffer(int id, const uint8_t* data, uint32_t dataSize);
+    void updateTableSizes();
 
     std::vector<uint8_t> m_inputBuffer;
-    const uint8_t* m_inputPtr = nullptr;
+    uint8_t* m_inputPtr = nullptr;
     uint32_t m_inputSize = 0;
     Language m_language;
     static constexpr uint32_t m_maxDepth = 4;

@@ -10,6 +10,7 @@
 #include "strings.h"
 #include "cakp.h"
 #include "stringtable.h"
+#include "rompatcher.h"
 
 namespace ndsloc {
 
@@ -30,7 +31,7 @@ P2File::P2File(const std::string& filePath)
     m_inputSize = m_inputBuffer.size();
 }
 
-P2File::P2File(const uint8_t* inputPtr, uint32_t inputSize)
+P2File::P2File(uint8_t* inputPtr, uint32_t inputSize)
     : m_inputPtr(inputPtr)
     , m_inputSize(inputSize)
     , m_language(LANG_EN)
@@ -74,7 +75,7 @@ bool P2File::readFileTable()
 {
     m_subfiles.clear();
 
-    const uint8_t* dataPtr = m_inputPtr;
+    uint8_t* dataPtr = m_inputPtr;
     const uint32_t inputSize = m_inputSize;
 
     if (!p2::isP2File(dataPtr) || inputSize < p2::kSectorTableAt)
@@ -192,11 +193,7 @@ void appendStrings(const std::vector<String>& strings, uint32_t sectionOffset, s
         if (str.text == "\x01")
             continue;
 
-        String copy = str;
-        // Temp: adding the file offset (useful for .ini)
-        copy.offset += sectionOffset;
-
-        out.push_back(std::move(copy));
+        out.push_back(std::move(str));
     }
 }
 
@@ -208,7 +205,7 @@ void appendWideStrings(const P2SubFile& subfile, const std::vector<U16String>& s
     }
 }
 
-bool P2File::extractPayload(const P2SubFile& subfile, const uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out)
+bool P2File::extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out)
 {
     assert(subfile.fileOffset == payloadOffset);
 
@@ -280,20 +277,113 @@ bool P2File::extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vecto
         ndsloc::LZSSFile lzss(subfile.inputPtr, subfile.fileSize);
         lzss.decompress();
 
-        const auto decompressed = lzss.getConvertedData();
+        auto decompressed = lzss.getConvertedData();
         auto* data = decompressed.data();
         auto dataSize = static_cast<uint32_t>(decompressed.size());
 
         const uint32_t expected = getExpectedDecompressedSize(subfile.inputPtr, subfile.maxSize);
         assert(expected == dataSize);
 
-        auto type = utils::getFileFormat(data, dataSize);
-
         return extractPayload(subfile, data, dataSize, subfile.fileOffset, depth, out);
     }
     else
     {
         return extractPayload(subfile, subfile.inputPtr, subfile.fileSize, subfile.fileOffset, depth, out);
+    }
+}
+
+void P2File::applyChanges(const strings::CsvNdsFile& patchData)
+{
+    if (!readFileTable())
+        return;
+
+    for (auto& patchFile : patchData.subfiles)
+    {
+        if (!patchFile.bNeedUpdate)
+            continue;
+
+        auto found = std::find_if(m_subfiles.begin(), m_subfiles.end(), [&](auto& e) { return e.getFilename() == patchFile.filename; });
+        assert(found != m_subfiles.end());
+        if (found != m_subfiles.end())
+        {
+            auto& subfile = *found;
+            if (subfile.isCompressed())
+            {
+                ndsloc::LZSSFile previous(subfile.inputPtr, subfile.fileSize);
+                previous.decompress();
+
+                auto decompressed = previous.getConvertedData();
+                auto* data = decompressed.data();
+                auto dataSize = static_cast<uint32_t>(decompressed.size());
+
+                for (auto& line : patchFile.lines)
+                {
+                    if (line.bNeedUpdate)
+                    {
+                        RomPatcher::patchLine(data, line.offset, line.text.c_str());
+                    }
+                }
+
+                ndsloc::LZSSFile newer(decompressed.data(), decompressed.size());
+                newer.compress();
+
+                auto newerData = newer.getConvertedData();
+                auto chunkId  = std::distance(m_subfiles.begin(), found);
+                updateSubfileBuffer(chunkId, newerData.data(), newerData.size());
+            }
+            else
+            {
+                assert(false);
+            }
+        }
+    }
+}
+
+void P2File::updateSubfileBuffer(int id, const uint8_t* data, uint32_t dataSize)
+{
+    assert(id >= 0 && id < m_subfiles.size());
+    if (id < 0 || id >= m_subfiles.size())
+        return;
+
+    auto& fileDesc = m_subfiles[id];
+    assert(dataSize < fileDesc.maxSize);
+    if (dataSize < fileDesc.maxSize)
+    {
+        memcpy_s((void*)fileDesc.inputPtr, dataSize, data, dataSize);
+        int remaining = fileDesc.fileSize - dataSize;
+        if (remaining > 0)
+        {
+            memset((void*)(fileDesc.inputPtr + dataSize), 0, remaining);
+        }
+
+        fileDesc.fileSize = dataSize;
+    }
+
+    updateTableSizes();
+}
+
+void P2File::updateTableSizes()
+{
+    // TODO: update this function
+
+    const uint8_t fileCount = m_subfiles.size();
+    uint8_t fileType = m_inputPtr[3];
+
+    uint32_t currentPos = 0x10;
+    currentPos += (2 * fileCount);
+
+    if (fileType == 0x80)
+    {
+        for (int i = 0; i < fileCount; i++)
+        {
+            auto& fileDesc = m_subfiles[i];
+
+            int newSize = fileDesc.fileSize;
+            m_inputPtr[currentPos] = static_cast<uint8_t>(newSize & 0xFF);
+            m_inputPtr[currentPos + 1] = static_cast<uint8_t>((newSize >> 8) & 0xFF);
+            m_inputPtr[currentPos + 2] = static_cast<uint8_t>((newSize >> 16) & 0xFF);
+            currentPos += 4;
+        }
     }
 }
 
