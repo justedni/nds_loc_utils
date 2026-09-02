@@ -6,6 +6,7 @@
 
 namespace ndsloc {
 
+enum Language : uint8_t;
 struct String;
 
 namespace cakp {
@@ -26,17 +27,6 @@ struct Instruction
     uint8_t flags;
 };
 
-enum Language : uint8_t
-{
-    LANG_JP = 0,
-    LANG_EN = 1,
-    LANG_FR = 2,
-    LANG_DE = 3,
-    LANG_IT = 4,
-    LANG_ES = 5,
-    LANG_COUNT = 6
-};
-
 enum ArgType : uint8_t
 {
     ARG_NULL = 0x00,
@@ -51,7 +41,6 @@ enum ArgType : uint8_t
 
 bool isCAKP(const uint8_t* buffer);
 
-bool languageFromSectionName(const std::string& name, Language& language);
 bool isTextOpcode(uint8_t group, uint8_t opcode);
 
 } // namespace cakp
@@ -61,7 +50,7 @@ class CAKPFile
 public:
     CAKPFile(const uint8_t* inputPtr, uint32_t inputSize, uint32_t sectionOffset, std::string sectionName);
 
-    void setLanguage(cakp::Language language) { m_language = language; }
+    void setLanguage(Language language) { m_language = language; }
 
     // Extraction method 1: whole CAKP file
     bool extractStrings(std::vector<String>& out);
@@ -91,7 +80,7 @@ private:
 
     const uint8_t* m_buffer = nullptr;
     uint32_t m_bufferSize = 0;
-    cakp::Language m_language = cakp::LANG_EN;
+    Language m_language;
 
     int m_sectionLanguage = -1;
 

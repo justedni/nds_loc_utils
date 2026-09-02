@@ -2,6 +2,7 @@
 
 #include "utils.h"
 #include "types.h"
+#include "lang.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -15,41 +16,6 @@ bool isCAKP(const uint8_t* buffer)
     return (std::memcmp(buffer, "CAKP", 4) == 0);
 }
 
-bool languageFromSectionName(const std::string& name, Language& language)
-{
-    struct LangCode
-    {
-        const char* code;
-        Language language;
-    };
-
-    static const LangCode kCodes[] =
-    {
-        { "_jp", LANG_JP },
-        { "_en", LANG_EN },
-        { "_fr", LANG_FR },
-        { "_de", LANG_DE },
-        { "_it", LANG_IT },
-        { "_es", LANG_ES }
-    };
-
-    if (name.size() < 3)
-        return false;
-
-    const std::string suffix = name.substr(name.size() - 3);
-
-    for (const auto& entry : kCodes)
-    {
-        if (suffix == entry.code)
-        {
-            language = entry.language;
-            return true;
-        }
-    }
-
-    return false;
-}
-
 bool isTextOpcode(uint8_t group, uint8_t opcode)
 {
     return group == 0x03 && opcode == 0x01;  // show_subtitle
@@ -60,6 +26,7 @@ bool isTextOpcode(uint8_t group, uint8_t opcode)
 CAKPFile::CAKPFile(const uint8_t* inputPtr, uint32_t inputSize, uint32_t sectionOffset, std::string sectionName)
     : m_buffer(inputPtr)
     , m_bufferSize(inputSize)
+    , m_language(LANG_EN)
     , m_sectionOffset(sectionOffset)
     , m_sectionName(std::move(sectionName))
 {
@@ -262,8 +229,8 @@ bool CAKPFile::extractStrings(std::vector<String>& out)
         m_sectionLanguage = -1;
         if (i < sectionNames.size())
         {
-            cakp::Language sectionLanguage = cakp::LANG_JP;
-            if (cakp::languageFromSectionName(sectionNames[i], sectionLanguage))
+            Language sectionLanguage = LANG_JP;
+            if (languageFromSectionName(sectionNames[i], sectionLanguage))
                 m_sectionLanguage = static_cast<int>(sectionLanguage);
         }
 

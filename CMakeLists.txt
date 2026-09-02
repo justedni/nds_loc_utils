@@ -16,6 +16,8 @@ set(CMAKE_AUTOUIC ON)
 set(SOURCES_CORE
     src/core/cakp.cpp
     src/core/cakp.h
+    src/core/lang.cpp
+    src/core/lang.h
     src/core/lzss.cpp
     src/core/lzss.h
     src/core/nds.cpp

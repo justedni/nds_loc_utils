@@ -7,9 +7,7 @@
 
 namespace ndsloc {
 
-namespace cakp {
 enum Language : uint8_t;
-}
 
 namespace p2 {
 
@@ -62,7 +60,7 @@ public:
 
     const std::vector<P2SubFile>& readAndGetFileTable();
 
-    void setLanguage(cakp::Language language) { m_language = language; }
+    void setLanguage(Language language) { m_language = language; }
 
     bool extractStrings(std::vector<String>& out);
 
@@ -77,7 +75,7 @@ private:
     std::vector<uint8_t> m_inputBuffer;
     const uint8_t* m_inputPtr = nullptr;
     uint32_t m_inputSize = 0;
-    cakp::Language m_language;
+    Language m_language;
     static constexpr uint32_t m_maxDepth = 4;
 
     std::vector<P2SubFile> m_subfiles;

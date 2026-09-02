@@ -5,6 +5,7 @@
 #include <fstream>
 
 #include "utils.h"
+#include "lang.h"
 #include "lzss.h"
 #include "strings.h"
 #include "cakp.h"
@@ -22,6 +23,7 @@ bool isP2File(const uint8_t* buffer)
 } // namespace p2
 
 P2File::P2File(const std::string& filePath)
+    : m_language(LANG_EN)
 {
     m_inputBuffer = utils::readBinaryFile(filePath);
     m_inputPtr = m_inputBuffer.data();
@@ -31,7 +33,7 @@ P2File::P2File(const std::string& filePath)
 P2File::P2File(const uint8_t* inputPtr, uint32_t inputSize)
     : m_inputPtr(inputPtr)
     , m_inputSize(inputSize)
-    , m_language(cakp::LANG_EN)
+    , m_language(LANG_EN)
 {
 }
 
@@ -270,6 +272,9 @@ uint32_t getExpectedDecompressedSize(const uint8_t* dataPtr, uint32_t dataSize)
 
 bool P2File::extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vector<String>& out)
 {
+    if (subfile.fileSize == 0)
+        return true;
+
     if (subfile.isCompressed())
     {
         ndsloc::LZSSFile lzss(subfile.inputPtr, subfile.fileSize);
