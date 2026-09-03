@@ -3,18 +3,24 @@
 #include <vector>
 #include <string>
 
+namespace NDS {
+struct NDSEntry;
+class NDSFileSystem;
+}
+
 namespace ndsloc {
 
 namespace strings {
 struct CsvNdsFile;
+struct CsvLine;
 }
 
 namespace patcher {
 
-static void compareCsvs(const std::vector<strings::CsvNdsFile>& refFiles, std::vector<strings::CsvNdsFile>& modFiles);
-static void createPatch(const std::string& romPath, const std::vector<strings::CsvNdsFile>& modFiles);
+void compareCsvs(const std::vector<strings::CsvNdsFile>& refFiles, std::vector<strings::CsvNdsFile>& modFiles);
+void createPatch(const std::string& romPath, const std::vector<strings::CsvNdsFile>& modFiles);
 
-static void patchLine(uint8_t* data, unsigned int addr, const char* targetLine);
-}
+uint32_t patchCompressedSection(uint8_t* inputPtr, uint32_t inputSize, uint32_t maxSize, const std::vector<strings::CsvLine>& lines, NDS::NDSFileSystem& fs, NDS::NDSEntry* entry, bool bPadFF);
 
+} // namespace patcher
 } // namespace ndsloc

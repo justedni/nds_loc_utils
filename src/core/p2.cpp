@@ -179,6 +179,8 @@ bool P2File::readFileTable()
         auto& fileDesc = m_subfiles[i];
         fileDesc.inputPtr = dataPtr + fileDesc.fileOffset;
     }
+
+    return true;
 }
 
 void P2File::saveToDisk(const std::string& outPath)
@@ -194,14 +196,6 @@ void appendStrings(const std::vector<String>& strings, uint32_t sectionOffset, s
             continue;
 
         out.push_back(std::move(str));
-    }
-}
-
-void appendWideStrings(const P2SubFile& subfile, const std::vector<U16String>& strings, std::vector<String>& out)
-{
-    for (auto& str : strings)
-    {
-        out.emplace_back(str.offset, utf16ToUtf8(str.text), subfile.fileOffset, subfile.getFilename());
     }
 }
 
@@ -244,7 +238,7 @@ bool P2File::extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t
         std::vector<U16String> wide;
         StringTableFile table(payload, payloadSize);
         const bool ok = table.extractStrings(wide);
-        appendWideStrings(subfile, wide, out);
+        strings::appendWideStrings(subfile.fileOffset, subfile.getFilename(), wide, out);
         return ok;
     }
 
@@ -292,98 +286,21 @@ bool P2File::extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vecto
     }
 }
 
-void P2File::applyChanges(const strings::CsvNdsFile& patchData)
-{
-    if (!readFileTable())
-        return;
-
-    for (auto& patchFile : patchData.subfiles)
-    {
-        if (!patchFile.bNeedUpdate)
-            continue;
-
-        auto found = std::find_if(m_subfiles.begin(), m_subfiles.end(), [&](auto& e) { return e.getFilename() == patchFile.filename; });
-        assert(found != m_subfiles.end());
-        if (found != m_subfiles.end())
-        {
-            auto& subfile = *found;
-            if (subfile.isCompressed())
-            {
-                ndsloc::LZSSFile previous(subfile.inputPtr, subfile.fileSize);
-                previous.decompress();
-
-                auto decompressed = previous.getConvertedData();
-                auto* data = decompressed.data();
-                auto dataSize = static_cast<uint32_t>(decompressed.size());
-
-                for (auto& line : patchFile.lines)
-                {
-                    if (line.bNeedUpdate)
-                    {
-                        RomPatcher::patchLine(data, line.offset, line.text.c_str());
-                    }
-                }
-
-                ndsloc::LZSSFile newer(decompressed.data(), decompressed.size());
-                newer.compress();
-
-                auto newerData = newer.getConvertedData();
-                auto chunkId  = std::distance(m_subfiles.begin(), found);
-                updateSubfileBuffer(chunkId, newerData.data(), newerData.size());
-            }
-            else
-            {
-                assert(false);
-            }
-        }
-    }
-}
-
-void P2File::updateSubfileBuffer(int id, const uint8_t* data, uint32_t dataSize)
-{
-    assert(id >= 0 && id < m_subfiles.size());
-    if (id < 0 || id >= m_subfiles.size())
-        return;
-
-    auto& fileDesc = m_subfiles[id];
-    assert(dataSize < fileDesc.maxSize);
-    if (dataSize < fileDesc.maxSize)
-    {
-        memcpy_s((void*)fileDesc.inputPtr, dataSize, data, dataSize);
-        int remaining = fileDesc.fileSize - dataSize;
-        if (remaining > 0)
-        {
-            memset((void*)(fileDesc.inputPtr + dataSize), 0, remaining);
-        }
-
-        fileDesc.fileSize = dataSize;
-    }
-
-    updateTableSizes();
-}
-
-void P2File::updateTableSizes()
+void P2File::updateEntrySizeInTable(uint16_t subfileId, uint32_t newSize)
 {
     // TODO: update this function
 
     const uint8_t fileCount = m_subfiles.size();
     uint8_t fileType = m_inputPtr[3];
 
-    uint32_t currentPos = 0x10;
-    currentPos += (2 * fileCount);
-
     if (fileType == 0x80)
     {
-        for (int i = 0; i < fileCount; i++)
-        {
-            auto& fileDesc = m_subfiles[i];
+        P2SubFile& fileDesc = m_subfiles[subfileId];
+        const uint32_t currentPos = 0x10 + (2 * fileCount) + (4 * subfileId);
 
-            int newSize = fileDesc.fileSize;
-            m_inputPtr[currentPos] = static_cast<uint8_t>(newSize & 0xFF);
-            m_inputPtr[currentPos + 1] = static_cast<uint8_t>((newSize >> 8) & 0xFF);
-            m_inputPtr[currentPos + 2] = static_cast<uint8_t>((newSize >> 16) & 0xFF);
-            currentPos += 4;
-        }
+        m_inputPtr[currentPos] = static_cast<uint8_t>(newSize & 0xFF);
+        m_inputPtr[currentPos + 1] = static_cast<uint8_t>((newSize >> 8) & 0xFF);
+        m_inputPtr[currentPos + 2] = static_cast<uint8_t>((newSize >> 16) & 0xFF);
     }
 }
 

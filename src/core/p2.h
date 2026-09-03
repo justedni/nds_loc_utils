@@ -70,16 +70,13 @@ public:
 
     void saveToDisk(const std::string& outPath);
 
-    void applyChanges(const strings::CsvNdsFile& patchData);
+    void updateEntrySizeInTable(uint16_t subfileId, uint32_t newSize);
 private:
     bool sizeTableLooksValid(uint32_t sizesAt) const;
     bool readFileTable();
 
     bool extractSubFile(const P2SubFile& subfile, uint32_t depth, std::vector<String>& out);
     bool extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t payloadSize, uint32_t payloadOffset, uint32_t depth, std::vector<String>& out);
-
-    void updateSubfileBuffer(int id, const uint8_t* data, uint32_t dataSize);
-    void updateTableSizes();
 
     std::vector<uint8_t> m_inputBuffer;
     uint8_t* m_inputPtr = nullptr;

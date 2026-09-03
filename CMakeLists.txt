@@ -24,6 +24,8 @@ set(SOURCES_CORE
     src/core/nds.h
     src/core/p2.cpp
     src/core/p2.h
+    src/core/rompatcher.cpp
+    src/core/rompatcher.h
     src/core/strings.cpp
     src/core/strings.h
     src/core/stringtable.cpp

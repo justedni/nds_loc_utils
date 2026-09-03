@@ -10,6 +10,8 @@ enum EFileFormat : uint8_t;
 
 namespace strings {
 
+void appendWideStrings(uint32_t fileOffset, const std::string& filename, const std::vector<U16String>& strings, std::vector<String>& out);
+
 std::ofstream startFile(const std::string& outPathNoExt, ExportFormat format);
 void writeStrings(ExportFormat format, std::ofstream& os, uint32_t fileOffset, const std::string& filename, const std::vector<String>& strings);
 void writeStrings(ExportFormat format, std::ofstream& os, uint32_t fileOffset, const std::string& filename, const std::vector<U16String>& strings);

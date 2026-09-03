@@ -13,6 +13,14 @@
 namespace ndsloc {
 namespace strings {
 
+void appendWideStrings(uint32_t fileOffset, const std::string& filename, const std::vector<U16String>& strings, std::vector<String>& out)
+{
+    for (auto& str : strings)
+    {
+        out.emplace_back(str.offset, utf16ToUtf8(str.text), fileOffset, std::string(filename), true);
+    }
+}
+
 void writeIniString(std::ofstream& os, int offset, const std::string& text)
 {
     os << "0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << offset << "=";
