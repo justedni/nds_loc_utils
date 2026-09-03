@@ -2,7 +2,6 @@
 
 #include <string>
 #include <vector>
-#include <deque>
 
 namespace ndsloc {
 
@@ -12,8 +11,10 @@ public:
     LZSSFile(const std::string& inputPath);
     LZSSFile(const uint8_t* inputPtr, int inputSize);
 
+    enum ECompressType : uint8_t { LZSS = 0, ONZ, Unknown };
+
+    ECompressType getCompressionMethod() const;
     void decompress();
-    enum ECompressType: uint8_t{ LZSS = 0, ONZ };
     void compress(ECompressType type = LZSS);
 
     const std::vector<uint8_t>& getConvertedData() const { return m_outputBuffer; }
@@ -26,8 +27,10 @@ private:
     void compressLzss();
     void compressOnz();
 
-    void compress_impl(int readAheadBufferSize, uint8_t compressionType);
-    static std::pair<int, int> search(const std::vector<uint8_t>& slidingWindow, const std::deque<uint8_t>& readAheadBuffer, int distance);
+    void compress_impl(ECompressType type);
+
+    static std::pair<int, int> search(const uint8_t* data, int position, int size, int maxLength, int maxDistance);
+    static void encodeToken(std::vector<uint8_t>& out, int length, int distance, ECompressType type);
 
     std::vector<uint8_t> m_inputBuffer;
     const uint8_t* m_inputPtr = nullptr;

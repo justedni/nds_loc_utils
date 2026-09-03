@@ -6,6 +6,20 @@
 
 namespace ndsloc {
 
+namespace {
+
+const int BlockSize = 8;
+const int SlidingWindowSize = 4096;
+const int MinMatchLength = 3;
+
+const int LzssMaxMatchLength = 18;
+const uint8_t LzssCompressionType = 0x10;
+
+const int OnzMaxMatchLength = 0x10110;
+const uint8_t OnzCompressionType = 0x11;
+
+}
+
 LZSSFile::LZSSFile(const std::string& inputPath)
 {
     m_inputBuffer = utils::readBinaryFile(inputPath);
@@ -19,20 +33,30 @@ LZSSFile::LZSSFile(const uint8_t* inputPtr, int inputSize)
 {
 }
 
-void LZSSFile::decompress()
+LZSSFile::ECompressType LZSSFile::getCompressionMethod() const
 {
     assert(m_inputSize > 0 && m_inputPtr != nullptr);
 
-    if (m_inputPtr[0] == 0x10) // LZSS
-    {
-        decompressLzss();
-    }
-    else if (m_inputPtr[0] == 0x11) // ONZ
-    {
-        decompressOnz();
-    }
+    if (m_inputPtr[0] == LzssCompressionType)
+        return ECompressType::LZSS;
+    else if (m_inputPtr[0] == OnzCompressionType)
+        return ECompressType::ONZ;
     else
+        return ECompressType::Unknown;
+}
+
+void LZSSFile::decompress()
+{
+    auto algo = getCompressionMethod();
+    switch (algo)
     {
+    case ECompressType::LZSS:
+        decompressLzss();
+        break;
+    case ECompressType::ONZ:
+        decompressOnz();
+        break;
+    default: {}
         // Not implemented
     }
 }
@@ -75,9 +99,10 @@ void LZSSFile::decompressLzss()
                 int copyPosition = processedBytes - copyFrom;
                 for (int u = 0; u < amountToCopy; u++)
                 {
-                    if ((copyPosition + (u % copyFrom)) < processedBytes)
+                    const int readPosition = copyPosition + (u % copyFrom);
+                    if (readPosition >= 0 && readPosition < processedBytes)
                     {
-                        *outPtr = outPtrStart[copyPosition + (u % copyFrom)];
+                        *outPtr = outPtrStart[readPosition];
                         outPtr++;
                         processedBytes++;
                     }
@@ -173,9 +198,10 @@ void LZSSFile::decompressOnz()
                 int copyPosition = processedBytes - copyFrom;
                 for (int u = 0; u < amountToCopy; u++)
                 {
-                    if ((copyPosition + (u % copyFrom)) < processedBytes)
+                    const int readPosition = copyPosition + (u % copyFrom);
+                    if (readPosition >= 0 && readPosition < processedBytes)
                     {
-                        *outPtr = outPtrStart[copyPosition + (u % copyFrom)];
+                        *outPtr = outPtrStart[readPosition];
                         outPtr++;
                         processedBytes++;
                     }
@@ -231,103 +257,96 @@ void LZSSFile::compressLzss()
 {
     assert(m_inputSize > 0 && m_inputPtr != nullptr);
 
-    const int LzssBufferSize = 18;
-    const uint8_t LzssCompressionType = 0x10;
-
-    compress_impl(LzssBufferSize, LzssCompressionType);
+    compress_impl(ECompressType::LZSS);
 }
 
 void LZSSFile::compressOnz()
 {
     assert(m_inputSize > 0 && m_inputPtr != nullptr);
 
-    const int OnzBufferSize = 16;
-    const uint8_t OnzCompressionType = 0x11;
-
-    compress_impl(OnzBufferSize, OnzCompressionType);
+    compress_impl(ECompressType::ONZ);
 }
 
-std::pair<int, int> LZSSFile::search(const std::vector<uint8_t>& slidingWindow, const std::deque<uint8_t>& readAheadBuffer, int distance)
+std::pair<int, int> LZSSFile::search(const uint8_t* data, int position, int size, int maxLength, int maxDistance)
 {
-    int slidingWindowSize = slidingWindow.size();
-    int readAheadBufferSize = readAheadBuffer.size();
+    const int remaining = size - position;
+    if (remaining <= 0)
+        return { 0, 0 };
 
-    if (readAheadBufferSize == 0)
+    maxLength = std::min(maxLength, remaining);
+
+    const int start = std::max(0, position - maxDistance);
+
+    int bestDistance = 0;
+    int bestLength = 0;
+
+    for (int candidate = start; candidate < position; candidate++)
     {
-        return std::make_pair<int, int>(0, -1);
-    }
+        const int distance = position - candidate;
 
-    std::vector<int> offsets;
-
-    for (int i = 0; i < slidingWindowSize - distance; i++)
-    {
-        if (slidingWindow[i] == readAheadBuffer[0])
+        int length = 0;
+        while (length < maxLength && data[candidate + (length % distance)] == data[position + length])
         {
-            offsets.push_back(i);
+            length++;
         }
-    }
 
-    if (offsets.size() == 0)
-    {
-        return std::make_pair<int, int>(0, 0);
-    }
-
-    for (int i = 1; i < readAheadBufferSize; i++)
-    {
-        for (auto it = offsets.begin(); it != offsets.end(); )
+        if (length > bestLength)
         {
-            auto offset = *it;
-            if ((slidingWindow[offset + (i % (slidingWindowSize - offset))] != readAheadBuffer[i])
-                && offsets.size() > 1)
+            bestLength = length;
+            bestDistance = distance;
+
+            if (bestLength == maxLength)
             {
-                it = offsets.erase(it);
-            }
-            else
-            {
-                ++it;
+                break;
             }
         }
-
-        if (offsets.size() < 2)
-        {
-            i = readAheadBufferSize;
-        }
     }
 
-    int size = 1;
-    bool keepGoing = true;
-    while ((readAheadBufferSize > size) && keepGoing)
-    {
-        if (slidingWindow[offsets[0] + (size % (slidingWindowSize - offsets[0]))] == readAheadBuffer[size])
-        {
-            size++;
-        }
-        else
-        {
-            keepGoing = false;
-        }
-    }
-
-    return std::make_pair<int, int>(slidingWindowSize - offsets[0], (int)size);
+    return { bestDistance, bestLength };
 }
 
-void LZSSFile::compress_impl(int readAheadBufferSize, uint8_t compressionType)
+void LZSSFile::encodeToken(std::vector<uint8_t>& out, int length, int distance, ECompressType type)
 {
-    const int BlockSize = 8;
-    const int SlidingWindowSize = 4096;
+    const int offset = distance - 1;
 
-    int distance = 1;
+    if (type == ECompressType::LZSS)
+    {
+        out.push_back((uint8_t)(((length - 3) << 4) | ((offset >> 8) & 0xF)));
+        out.push_back((uint8_t)(offset & 0xFF));
+        return;
+    }
 
+    if (length <= 0x10)
+    {
+        out.push_back((uint8_t)(((length - 1) << 4) | ((offset >> 8) & 0xF)));
+        out.push_back((uint8_t)(offset & 0xFF));
+    }
+    else if (length <= 0x110)
+    {
+        const int biasedLength = length - 0x11;
+        out.push_back((uint8_t)((biasedLength >> 4) & 0xF));
+        out.push_back((uint8_t)(((biasedLength & 0xF) << 4) | ((offset >> 8) & 0xF)));
+        out.push_back((uint8_t)(offset & 0xFF));
+    }
+    else
+    {
+        const int biasedLength = length - 0x111;
+        out.push_back((uint8_t)(0x10 | ((biasedLength >> 12) & 0xF)));
+        out.push_back((uint8_t)((biasedLength >> 4) & 0xFF));
+        out.push_back((uint8_t)(((biasedLength & 0xF) << 4) | ((offset >> 8) & 0xF)));
+        out.push_back((uint8_t)(offset & 0xFF));
+    }
+}
+
+void LZSSFile::compress_impl(ECompressType type)
+{
     const uint8_t* uncompressedData = m_inputPtr;
     const int inputSize = m_inputSize;
 
-    std::deque<uint8_t> readAheadBuffer;
-
-    std::vector<uint8_t> slidingWindow;
+    const int maxMatchLength = (type == ECompressType::ONZ) ? OnzMaxMatchLength : LzssMaxMatchLength;
+    const uint8_t compressionType = (type == ECompressType::ONZ) ? OnzCompressionType : LzssCompressionType;
 
     m_outputBuffer.clear();
-
-    int position = 0;
 
     // Header
     m_outputBuffer.push_back(compressionType);
@@ -335,74 +354,36 @@ void LZSSFile::compress_impl(int readAheadBufferSize, uint8_t compressionType)
     m_outputBuffer.push_back((inputSize >> 8) & 0xff);
     m_outputBuffer.push_back((inputSize >> 16) & 0xff);
 
-    while (position < readAheadBufferSize)
+    std::vector<uint8_t> blockContent;
+    int position = 0;
+
+    while (position < inputSize)
     {
-        readAheadBuffer.push_back(uncompressedData[position]);
-        position++;
-    }
+        blockContent.clear();
+        uint8_t blockFlags = 0;
 
-    bool isCompressed[BlockSize];
-
-    while (readAheadBuffer.size() > 0)
-    {
-        std::vector<uint8_t> data;
-
-        for (int i = BlockSize - 1; i >= 0; i--)
+        for (int i = BlockSize - 1; i >= 0 && position < inputSize; i--)
         {
-            std::pair<int, int> dataSeed = search(slidingWindow, readAheadBuffer, distance);
+            const std::pair<int, int> match = search(uncompressedData, position, inputSize, maxMatchLength, SlidingWindowSize);
 
-            if (dataSeed.second > 2)
+            const int distance = match.first;
+            const int length = match.second;
+
+            if (length >= MinMatchLength)
             {
-                isCompressed[i] = true;
-                uint8_t byte0 = (uint8_t)(((dataSeed.second - (readAheadBufferSize - 0xF)) & 0xF) << 4);
-                byte0 += (uint8_t)(((dataSeed.first - distance) >> 8) & 0xF);
-                uint8_t byte1 = (uint8_t)((dataSeed.first - distance) & 0xFF);
-                data.push_back(byte0);
-                data.push_back(byte1);
-            }
-            else if (dataSeed.second >= 0)
-            {
-                dataSeed.second = 1;
-                isCompressed[i] = false;
-                data.push_back(readAheadBuffer.front());
+                blockFlags |= (uint8_t)(1 << i);
+                encodeToken(blockContent, length, distance, type);
+                position += length;
             }
             else
             {
-                isCompressed[i] = false;
-            }
-
-            for (int u = 0; u < dataSeed.second; u++)
-            {
-                if (slidingWindow.size() >= SlidingWindowSize)
-                {
-                    slidingWindow.erase(slidingWindow.begin());
-                }
-
-                slidingWindow.push_back(readAheadBuffer.front());
-                readAheadBuffer.erase(readAheadBuffer.begin());
-            }
-
-            while ((readAheadBuffer.size() < readAheadBufferSize) && (position < inputSize))
-            {
-                readAheadBuffer.push_back(uncompressedData[position]);
+                blockContent.push_back(uncompressedData[position]);
                 position++;
             }
         }
 
-        uint8_t blockData = 0;
-        for (int i = 0; i < BlockSize; i++)
-        {
-            if (isCompressed[i])
-            {
-                blockData += (uint8_t)(1 << i);
-            }
-        }
-
-        m_outputBuffer.push_back(blockData);
-        for (auto& byte : data)
-        {
-            m_outputBuffer.push_back(byte);
-        }
+        m_outputBuffer.push_back(blockFlags);
+        m_outputBuffer.insert(m_outputBuffer.end(), blockContent.begin(), blockContent.end());
     }
 }
 
