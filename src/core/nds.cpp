@@ -124,16 +124,18 @@ std::string getFileExtension(const std::string& path)
 	return path.substr(dot + 1);
 }
 
-NDSEntry::NDSEntry(const std::string& in_filename, const std::string& ext, int in_start, int in_size)
+NDSEntry::NDSEntry(const std::string& in_filename, const std::string& ext, int in_start, int in_size, int in_fileId)
 	: filename(in_filename)
 	, type(ext)
 	, start(in_start)
 	, size(in_size)
+	, maxSize(in_size)
+	, fileId(in_fileId)
 {
 	string_tolower(type);
 }
 
-NDSFileSystem::NDSFileSystem(const uint8_t* rom, uint32_t romSize)
+NDSFileSystem::NDSFileSystem(uint8_t* rom, uint32_t romSize)
 	: m_pRom (rom)
 	, m_nRomSize(romSize)
 {
@@ -177,7 +179,7 @@ void NDSFileSystem::getRomFileSystem(bool bSkipOverlays)
 			pFileRec = (NDSFILEREC*)(m_pRom + m_pHeader->Fat_Offset + (OverlayEntry.file_id << 3));
 			m_nOverlayFileSize += pFileRec->bottom - pFileRec->top;
 
-			addEntry(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top);
+			addEntry(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top, static_cast<int>(OverlayEntry.file_id));
 		}
 
 		for (UINT i = 0; i < m_nOverlayFiles7; i++)
@@ -188,12 +190,42 @@ void NDSFileSystem::getRomFileSystem(bool bSkipOverlays)
 			pFileRec = (NDSFILEREC*)(m_pRom + m_pHeader->Fat_Offset + (OverlayEntry.file_id << 3));
 			m_nOverlayFileSize += pFileRec->bottom - pFileRec->top;
 
-			addEntry(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top);
+			addEntry(OverlayFiles, pFileRec->top, pFileRec->bottom - pFileRec->top, static_cast<int>(OverlayEntry.file_id));
 		}
 	}
 
 	OverlayFiles = "/";
 	extractDirectory(OverlayFiles);
+
+	computeMaxSizes();
+}
+
+void NDSFileSystem::computeMaxSizes()
+{
+	if (m_foundEntries.empty())
+		return;
+
+	std::vector<NDSEntry*> sorted;
+	sorted.reserve(m_foundEntries.size());
+	for (auto& entry : m_foundEntries)
+		sorted.push_back(&entry);
+
+	std::sort(sorted.begin(), sorted.end(), [](const NDSEntry* a, const NDSEntry* b) { return a->start < b->start; });
+
+	size_t i = 0;
+	while (i < sorted.size())
+	{
+		size_t next = i;
+		while (next < sorted.size() && sorted[next]->start == sorted[i]->start)
+			next++;
+
+		const int nextStart = (next < sorted.size()) ? sorted[next]->start : static_cast<int>(m_nRomSize);
+
+		for (size_t k = i; k < next; k++)
+			sorted[k]->maxSize = std::max(nextStart - sorted[k]->start, sorted[k]->size);
+
+		i = next;
+	}
 }
 
 void NDSFileSystem::extractDirectory(const std::string& ParentDir, uint8_t nID)
@@ -240,12 +272,12 @@ void NDSFileSystem::extractDirectory(const std::string& ParentDir, uint8_t nID)
 
 		strFilePathName = string_format("%s%s", ParentDir.c_str(), m_FileName);
 
-		addEntry(strFilePathName, pFileRec->top, nPos);
+		addEntry(strFilePathName, pFileRec->top, nPos, static_cast<int>(FileID));
 		FileID++;
 	}
 }
 
-void NDSFileSystem::addEntry(std::string& path, int start, int size)
+void NDSFileSystem::addEntry(std::string& path, int start, int size, int fileId)
 {
 	auto ext = getFileExtension(path);
 	if (ext.empty())
@@ -254,7 +286,7 @@ void NDSFileSystem::addEntry(std::string& path, int start, int size)
 		ext = utils::getExtName(type);
 	}
 
-	m_foundEntries.emplace_back(path, ext, start, size);
+	m_foundEntries.emplace_back(path, ext, start, size, fileId);
 }
 
 NDSEntry* NDSFileSystem::findEntryByOffset(uint32_t offset)
@@ -277,6 +309,33 @@ NDSEntry* NDSFileSystem::findEntryByName(const std::string& name)
 	}
 
 	return nullptr;
+}
+
+bool NDSFileSystem::patchEntrySize(NDSEntry& entry, int newSize)
+{
+	if (m_pRom == nullptr)
+		return false;
+
+	if (entry.fileId < 0)
+		return false;
+
+	if (newSize < 0 || newSize > entry.maxSize)
+		return false;
+
+	auto* pHeader = (const NDSHEADER*)m_pRom;
+
+	const UINT nPos = pHeader->Fat_Offset + (static_cast<UINT>(entry.fileId) << 3);
+	if (nPos + sizeof(NDSFILEREC) > m_nRomSize)
+		return false;
+
+	NDSFILEREC* pFileRec = (NDSFILEREC*)(m_pRom + nPos);
+	if (pFileRec->top != static_cast<UINT>(entry.start))
+		return false;
+
+	pFileRec->bottom = pFileRec->top + static_cast<UINT>(newSize);
+	entry.size = newSize;
+
+	return true;
 }
 
 } // namespace NDS
