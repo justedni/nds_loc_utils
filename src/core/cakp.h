@@ -48,7 +48,7 @@ bool isTextOpcode(uint8_t group, uint8_t opcode);
 class CAKPFile
 {
 public:
-    CAKPFile(const uint8_t* inputPtr, uint32_t inputSize, uint32_t sectionOffset, std::string sectionName);
+    CAKPFile(const uint8_t* inputPtr, uint32_t inputSize, std::string sectionName);
 
     void setLanguage(Language language) { m_language = language; }
 
@@ -84,7 +84,6 @@ private:
 
     int m_sectionLanguage = -1;
 
-    const uint32_t m_sectionOffset = 0;
     const std::string m_sectionName;
 
     std::vector<uint32_t> m_seen;

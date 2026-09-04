@@ -8,10 +8,9 @@ enum ExportFormat : uint8_t { Csv, Ini };
 
 struct String
 {
-    String(uint32_t in_off, std::string&& in_text, uint32_t in_sectionOffset, std::string&& in_section, bool in_wide)
+    String(uint32_t in_off, std::string&& in_text, std::string&& in_section, bool in_wide)
         : offset(in_off)
         , text(std::move(in_text))
-        , sectionOffset(in_sectionOffset)
         , section(std::move(in_section))
         , bIsWide(in_wide)
     {
@@ -20,7 +19,6 @@ struct String
     uint32_t offset = 0;
     std::string text;
 
-    uint32_t sectionOffset = 0;
     std::string section;
     bool bIsWide = false;
 };

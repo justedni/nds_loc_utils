@@ -23,11 +23,10 @@ bool isTextOpcode(uint8_t group, uint8_t opcode)
 
 } // namespace cakp
 
-CAKPFile::CAKPFile(const uint8_t* inputPtr, uint32_t inputSize, uint32_t sectionOffset, std::string sectionName)
+CAKPFile::CAKPFile(const uint8_t* inputPtr, uint32_t inputSize, std::string sectionName)
     : m_buffer(inputPtr)
     , m_bufferSize(inputSize)
     , m_language(LANG_EN)
-    , m_sectionOffset(sectionOffset)
     , m_sectionName(std::move(sectionName))
 {
 }
@@ -89,7 +88,7 @@ void CAKPFile::addString(uint32_t offset, uint32_t limit, bool allowDuplicates, 
     m_seen.push_back(offset);
 
     std::string text(reinterpret_cast<const char*>(begin), static_cast<size_t>(p - begin));
-    out.emplace_back(offset, std::move(text), m_sectionOffset, std::string(m_sectionName), false);
+    out.emplace_back(offset, std::move(text), std::string(m_sectionName), false);
 }
 
 void CAKPFile::collectMessageRecord(uint32_t recordAt, uint32_t poolAt, uint32_t sectionEnd, std::vector<String>& out)

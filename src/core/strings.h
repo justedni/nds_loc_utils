@@ -10,7 +10,7 @@ enum EFileFormat : uint8_t;
 
 namespace strings {
 
-void appendWideStrings(uint32_t fileOffset, const std::string& filename, const std::vector<U16String>& strings, std::vector<String>& out);
+void appendWideStrings(const std::string& filename, const std::vector<U16String>& strings, std::vector<String>& out);
 
 std::ofstream startFile(const std::string& outPathNoExt, ExportFormat format);
 void writeStrings(ExportFormat format, std::ofstream& os, uint32_t fileOffset, const std::string& filename, const std::vector<String>& strings);
@@ -27,7 +27,6 @@ struct CsvLine
 struct CsvNdsSubfile
 {
     std::string filename;
-    int offset = 0;
 
     std::vector<CsvLine> lines;
 

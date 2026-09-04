@@ -188,7 +188,7 @@ void P2File::saveToDisk(const std::string& outPath)
     utils::saveBinaryFile(m_inputBuffer, outPath);
 }
 
-void appendStrings(const std::vector<String>& strings, uint32_t sectionOffset, std::vector<String>& out)
+void appendStrings(const std::vector<String>& strings, std::vector<String>& out)
 {
     for (auto& str : strings)
     {
@@ -210,11 +210,11 @@ bool P2File::extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t
 
     if (cakp::isCAKP(payload))
     {
-        CAKPFile cakp(payload, payloadSize, payloadOffset, subfile.getFilename());
+        CAKPFile cakp(payload, payloadSize, subfile.getFilename());
         cakp.setLanguage(m_language);
         const bool ok = cakp.extractStrings(strings);
 
-        appendStrings(strings, payloadOffset, out);
+        appendStrings(strings, out);
         return ok;
     }
 
@@ -229,7 +229,7 @@ bool P2File::extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t
 
         std::vector<String> nestedOut;
         const bool ok = nested.extractStrings(nestedOut);
-        appendStrings(nestedOut, payloadOffset, out);
+        appendStrings(nestedOut, out);
         return ok;
     }
 
@@ -238,14 +238,14 @@ bool P2File::extractPayload(const P2SubFile& subfile, uint8_t* payload, uint32_t
         std::vector<U16String> wide;
         StringTableFile table(payload, payloadSize);
         const bool ok = table.extractStrings(wide);
-        strings::appendWideStrings(subfile.fileOffset, subfile.getFilename(), wide, out);
+        strings::appendWideStrings(subfile.getFilename(), wide, out);
         return ok;
     }
 
-    CAKPFile section(payload, payloadSize, payloadOffset, subfile.getFilename());
+    CAKPFile section(payload, payloadSize, subfile.getFilename());
     section.setLanguage(m_language);
     section.extractSectionStrings(strings);
-    appendStrings(strings, payloadOffset, out);
+    appendStrings(strings, out);
     return true;
 }
 
@@ -317,13 +317,6 @@ bool P2File::extractStrings(std::vector<String>& out)
         if (!extractSubFile(subfile, 0, out))
             ok = false;
     }
-
-    std::sort(out.begin(), out.end(), [](auto& a, auto& b)
-    {
-        if (a.sectionOffset != b.sectionOffset)
-            return a.sectionOffset < b.sectionOffset;
-        return a.offset < b.offset;
-    });
 
     return ok;
 }

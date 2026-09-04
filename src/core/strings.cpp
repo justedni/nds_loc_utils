@@ -13,11 +13,11 @@
 namespace ndsloc {
 namespace strings {
 
-void appendWideStrings(uint32_t fileOffset, const std::string& filename, const std::vector<U16String>& strings, std::vector<String>& out)
+void appendWideStrings(const std::string& filename, const std::vector<U16String>& strings, std::vector<String>& out)
 {
     for (auto& str : strings)
     {
-        out.emplace_back(str.offset, utf16ToUtf8(str.text), fileOffset, std::string(filename), true);
+        out.emplace_back(str.offset, utf16ToUtf8(str.text), std::string(filename), true);
     }
 }
 
@@ -58,25 +58,24 @@ std::ofstream startFile(const std::string& outPathNoExt, ExportFormat format)
     if (format == ExportFormat::Csv)
     {
         os << "\xEF\xBB\xBF";
-        os << "file,subfile,subfileoffset,offset,text\n";
+        os << "file,subfile,offset,text\n";
     }
 
     return std::move(os);
 }
 
-void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, int subfileOffset, const std::string& text)
+void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, const std::string& text)
 {
     os << filename;
     os << ',' << subfilename;
-    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(8) << std::hex << subfileOffset;
-    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(4) << offset;
+    os << ",0x" << std::uppercase << std::setfill('0') << std::setw(4) << std::hex << offset;
     os << ',' << csvEscape(text);
     os << '\n';
 }
 
-void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, int subfileOffset, const std::u16string& text)
+void writeCsvLine(std::ofstream& os, const std::string& filename, const std::string& subfilename, int offset, const std::u16string& text)
 {
-    writeCsvLine(os, filename, subfilename, offset, subfileOffset, utf16ToUtf8(text));
+    writeCsvLine(os, filename, subfilename, offset, utf16ToUtf8(text));
 }
 
 bool shouldIgnoreString(std::string str)
@@ -89,10 +88,8 @@ bool shouldIgnoreString(std::string str)
 }
 
 const std::string& getSection(const String& entry) { return entry.section; }
-uint32_t getSectionOffset(const String& entry) { return entry.sectionOffset; }
 
 const std::string& getSection(const U16String&) { static const std::string empty; return empty; }
-uint32_t getSectionOffset(const U16String&) { return 0; }
 
 std::string getText(const String& entry) { return entry.text; }
 std::string getText(const U16String& entry) { return utf16ToUtf8(entry.text); }
@@ -110,7 +107,7 @@ void writeStringsImpl(ExportFormat format, std::ofstream& os, uint32_t fileOffse
         utils::replace_in_string(text, "\r", "\\r");
 
         if (format == ExportFormat::Csv)
-            strings::writeCsvLine(os, filename, getSection(entry), entry.offset, getSectionOffset(entry), text);
+            strings::writeCsvLine(os, filename, getSection(entry), entry.offset, text);
         else
             strings::writeIniString(os, fileOffset + entry.offset, text);
     }
@@ -277,7 +274,7 @@ std::vector<CsvNdsFile> readCsvFile(const std::string& inPath)
         if (fields.size() == 1 && fields[0].empty()) // blank line
             continue;
 
-        if (fields.size() < 5)
+        if (fields.size() < 4)
         {
             assert(false); // Invalid line (not enough columns)
             continue;
@@ -321,8 +318,8 @@ std::vector<CsvNdsFile> readCsvFile(const std::string& inPath)
         assert(currentFile);
 
         CsvLine entry;
-        entry.offset = parseHex(fields[3], "offset", lineNumber);
-        entry.text = unescapeText(fields[4]);
+        entry.offset = parseHex(fields[2], "offset", lineNumber);
+        entry.text = unescapeText(fields[3]);
 
         std::string subfilename = fields[1];
         if (!subfilename.empty())
@@ -336,7 +333,6 @@ std::vector<CsvNdsFile> readCsvFile(const std::string& inPath)
             {
                 CsvNdsSubfile newSubFile;
                 newSubFile.filename = subfilename;
-                newSubFile.offset = parseHex(fields[2], "subfileoffset", lineNumber);
                 newSubFile.lines.push_back(std::move(entry));
                 currentFile->subfiles.push_back(std::move(newSubFile));
             }

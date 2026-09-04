@@ -458,7 +458,7 @@ uint32_t patchCompressedSection(uint8_t* inputPtr, uint32_t inputSize, uint32_t 
 
     if (cakp::isCAKP(data))
     {
-        CAKPFile cakp(data, dataSize, 0, "");
+        CAKPFile cakp(data, dataSize, "");
         cakp.extractStrings(strings);
     }
     else if (StringTableFile::looksValid(data, dataSize))
@@ -466,7 +466,7 @@ uint32_t patchCompressedSection(uint8_t* inputPtr, uint32_t inputSize, uint32_t 
         std::vector<U16String> wide;
         StringTableFile table(data, dataSize);
         const bool ok = table.extractStrings(wide);
-        strings::appendWideStrings(0, "", wide, strings);
+        strings::appendWideStrings("", wide, strings);
     }
 
     auto algo = previous.getCompressionMethod();
