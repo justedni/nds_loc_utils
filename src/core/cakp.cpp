@@ -5,6 +5,7 @@
 #include "lang.h"
 
 #include <algorithm>
+#include <cstring>
 #include <assert.h>
 
 namespace ndsloc {

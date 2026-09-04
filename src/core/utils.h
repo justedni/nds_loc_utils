@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <cstdint>
 
 namespace ndsloc {
 
@@ -23,6 +24,7 @@ namespace utils {
 	ndsloc::EFileFormat getFileFormat(const void* data, std::size_t size);
 	std::string getExtName(ndsloc::EFileFormat type);
 
+	bool ends_with(const std::string& str, const std::string& suffix);
 	void replace_in_string(std::string& str, const std::string& replace, const std::string& with);
 	void replace_in_ustring(std::u16string& str, const std::u16string& replace, const std::u16string& with);
 

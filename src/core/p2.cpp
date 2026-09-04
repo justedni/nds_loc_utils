@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <assert.h>
+#include <cstring>
 #include <fstream>
 
 #include "utils.h"

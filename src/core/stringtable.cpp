@@ -402,7 +402,7 @@ uint32_t StringTableFile::exportStrings(std::ofstream& os, const std::vector<uin
         // Unrecognized format (probably not string table)
     }
 
-    if (ext.ends_with("s.z") && table.getFormat() != stringtable::Format::StringDB_Short)
+    if (utils::ends_with(ext, "s.z") && table.getFormat() != stringtable::Format::StringDB_Short)
         assert(false);
 
     strings::writeStrings(format, os, offset, filename, out_strings);

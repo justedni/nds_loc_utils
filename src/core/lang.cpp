@@ -1,5 +1,7 @@
 #include "lang.h"
 
+#include "utils.h"
+
 #include <map>
 
 namespace ndsloc {
@@ -44,17 +46,17 @@ bool shouldIgnoreFile(const std::string& filename, Language language)
         str = filename.substr(0, idx);
     }
 
-    if ((str.ends_with("_en") || str.find("/en/") != std::string::npos) && language != Language::LANG_EN)
+    if ((utils::ends_with(str,"_en") || str.find("/en/") != std::string::npos) && language != Language::LANG_EN)
         return true;
-    else if ((str.ends_with("_fr") || str.find("/fr/") != std::string::npos) && language != Language::LANG_FR)
+    else if ((utils::ends_with(str,"_fr") || str.find("/fr/") != std::string::npos) && language != Language::LANG_FR)
         return true;
-    else if ((str.ends_with("_ja") || str.find("/ja/") != std::string::npos) && language != Language::LANG_JP)
+    else if ((utils::ends_with(str,"_ja") || str.find("/ja/") != std::string::npos) && language != Language::LANG_JP)
         return true;
-    else if ((str.ends_with("_de") || str.find("/de/") != std::string::npos) && language != Language::LANG_DE)
+    else if ((utils::ends_with(str,"_de") || str.find("/de/") != std::string::npos) && language != Language::LANG_DE)
         return true;
-    else if ((str.ends_with("_es") || str.find("/es/") != std::string::npos) && language != Language::LANG_ES)
+    else if ((utils::ends_with(str,"_es") || str.find("/es/") != std::string::npos) && language != Language::LANG_ES)
         return true;
-    else if ((str.ends_with("_it") || str.find("/it/") != std::string::npos) && language != Language::LANG_IT)
+    else if ((utils::ends_with(str,"_it") || str.find("/it/") != std::string::npos) && language != Language::LANG_IT)
         return true;
 
     return false;

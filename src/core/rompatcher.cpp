@@ -8,6 +8,8 @@
 #include "cakp.h"
 #include "lzss.h"
 
+#include <algorithm>
+#include <cstring>
 #include <assert.h>
 
 namespace ndsloc {
@@ -429,7 +431,7 @@ void copyBinaryBuffer(const uint8_t* srcData, uint32_t srcSize, uint8_t* targetD
 {
     if (targetSize <= maxSize)
     {
-        memcpy_s((void*)targetData, srcSize, srcData, srcSize);
+        std::memcpy((void*)targetData, srcData, srcSize);
         int remaining = targetSize - srcSize;
         if (remaining > 0)
         {
