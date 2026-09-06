@@ -87,7 +87,7 @@ void patchP2File(P2File& file, NDS::NDSFileSystem& fs, NDS::NDSEntry* entry, con
             auto& subfile = *found;
             if (subfile.isCompressed())
             {
-                uint32_t newSize = patcher::patchCompressedSection(subfile.inputPtr, subfile.fileSize, subfile.maxSize, patchFile.lines, fs, entry, false);
+                uint32_t newSize = patcher::patchCompressedSection(subfile.inputPtr, subfile.fileSize, subfile.maxSize, patchFile.lines, false);
                 uint16_t subfileIndex = std::distance(subfiles.begin(), found);
                 file.updateEntrySizeInTable(subfileIndex, newSize);
             }
@@ -103,7 +103,14 @@ void createPatch(const std::string& romPath, const std::vector<strings::CsvNdsFi
 {
     auto ndsRom = utils::readBinaryFile(romPath);
 
-    auto ndsfs = NDS::NDSFileSystem(ndsRom.data(), ndsRom.size());
+    createPatch(ndsRom.data(), ndsRom.size(), modFiles);
+
+    utils::saveBinaryFile(ndsRom, romPath + "_mod");
+}
+
+void createPatch(uint8_t* rom, uint32_t romSize, const std::vector<strings::CsvNdsFile>& modFiles)
+{
+    auto ndsfs = NDS::NDSFileSystem(rom, romSize);
     ndsfs.getRomFileSystem(true);
 
     for (auto& modFile : modFiles)
@@ -116,7 +123,7 @@ void createPatch(const std::string& romPath, const std::vector<strings::CsvNdsFi
         if (!entry)
             continue;
 
-        auto* data = ndsRom.data() + entry->start;
+        auto* data = rom + entry->start;
 
         if (entry->type == "p2")
         {
@@ -125,11 +132,10 @@ void createPatch(const std::string& romPath, const std::vector<strings::CsvNdsFi
         }
         else if (entry->type == "z")
         {
-            patcher::patchCompressedSection(data, entry->size, entry->maxSize, modFile.lines, ndsfs, entry, true);
+            uint32_t newSize = patcher::patchCompressedSection(data, entry->size, entry->maxSize, modFile.lines, true);
+            ndsfs.patchEntrySize(*entry, newSize);
         }
     }
-
-    utils::saveBinaryFile(ndsRom, romPath + "_mod");
 }
 
 enum class TextEncoding
@@ -447,7 +453,7 @@ void copyBinaryBuffer(const uint8_t* srcData, uint32_t srcSize, uint8_t* targetD
     }
 }
 
-uint32_t patchCompressedSection(uint8_t* inputPtr, uint32_t inputSize, uint32_t maxSize, const std::vector<strings::CsvLine>& lines, NDS::NDSFileSystem& fs, NDS::NDSEntry* entry, bool bPadFF)
+uint32_t patchCompressedSection(uint8_t* inputPtr, uint32_t inputSize, uint32_t maxSize, const std::vector<strings::CsvLine>& lines, bool bPadFF)
 {
     ndsloc::LZSSFile previous(inputPtr, inputSize);
     previous.decompress();
@@ -503,7 +509,6 @@ uint32_t patchCompressedSection(uint8_t* inputPtr, uint32_t inputSize, uint32_t 
 
     auto padMode = bPadFF ? PadMode::FF : PadMode::Zero;
     copyBinaryBuffer(newerData.data(), newerData.size(), inputPtr, inputSize, maxSize, padMode);
-    fs.patchEntrySize(*entry, newerData.size());
 
     return newerData.size();
 }
